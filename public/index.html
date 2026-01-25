@@ -415,6 +415,16 @@
             </div>
 
             <div class="card">
+                <h2>MIDI File</h2>
+                <div class="controls">
+                    <input type="file" id="midiFileInput" accept=".mid,.midi" style="display: none;">
+                    <button class="btn btn-secondary" id="btnSelectFile">📁 Select File</button>
+                    <div id="fileInfo" style="font-size: 0.85rem; color: #888; margin-top: 0.5rem;"></div>
+                    <button class="btn btn-primary" id="btnPlayFile" disabled style="margin-top: 0.5rem;">▶ Play File</button>
+                </div>
+            </div>
+
+            <div class="card">
                 <h2>MIDI</h2>
                 <div class="controls">
                     <button class="btn btn-secondary" id="btnRefresh">Refresh Devices</button>
@@ -827,6 +837,55 @@
                 item.classList.add('selected')
             }
         })
+
+            // MIDI file upload
+            const midiFileInput = document.getElementById('midiFileInput')
+            const btnSelectFile = document.getElementById('btnSelectFile')
+            const btnPlayFile = document.getElementById('btnPlayFile')
+            const fileInfo = document.getElementById('fileInfo')
+            let selectedMidiFile = null
+
+            btnSelectFile.addEventListener('click', () => midiFileInput.click())
+
+            midiFileInput.addEventListener('change', (e) => {
+                const file = e.target.files[0]
+                if (file) {
+                    selectedMidiFile = file
+                    fileInfo.textContent = `${file.name} (${(file.size / 1024).toFixed(1)} KB)`
+                    btnPlayFile.disabled = false
+                }
+            })
+
+            btnPlayFile.addEventListener('click', async () => {
+                if (!selectedMidiFile) return
+
+                const output = outputSelect.value
+                const formData = new FormData()
+                formData.append('file', selectedMidiFile)
+                if (output) formData.append('output', output)
+
+                try {
+                    btnPlayFile.disabled = true
+                    btnPlayFile.textContent = '⏳ Loading...'
+
+                    const res = await fetch('/api/playback/file', {
+                        method: 'POST',
+                        body: formData
+                    })
+
+                    const data = await res.json()
+                    if (data.error) {
+                        alert('Error: ' + data.error)
+                    } else {
+                        fileInfo.textContent = `Playing: ${data.fileName} (${data.eventCount} events)`
+                    }
+                } catch (err) {
+                    alert('Failed to play file: ' + err.message)
+                } finally {
+                    btnPlayFile.textContent = '▶ Play File'
+                    btnPlayFile.disabled = false
+                }
+            })
 
         // Initialize
         connect()

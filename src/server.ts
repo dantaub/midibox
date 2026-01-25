@@ -1,5 +1,6 @@
 import { getRecent, getRange, createSession, listSessions, type MidiEvent, type Session } from "./db";
 import { startCapture, stopCapture, listInputs, listOutputs, openOutput, onMidiEvent, playEvent, closeOutput, sendMidiMessage } from "./midi";
+import { parseMidiFile, getPlayableEvents, type MidiFileEvent } from "./midi-file";
 
 const PORT = 4000;
 
@@ -160,6 +161,41 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
       return json({ status: "stopped" });
     }
 
+    // POST /api/playback/file - Upload and play a MIDI file
+    if (path === "/playback/file" && method === "POST") {
+      const formData = await req.formData();
+      const file = formData.get("file") as File;
+      const outputDevice = formData.get("output") as string;
+      
+      if (!file) {
+        return json({ error: "No file provided" }, 400);
+      }
+
+      // Open output if specified
+      if (outputDevice) {
+        await openOutput(outputDevice);
+      }
+
+      // Parse MIDI file
+      const buffer = await file.arrayBuffer();
+      const midiFile = parseMidiFile(buffer);
+      const events = getPlayableEvents(midiFile);
+
+      console.log(`Playing MIDI file: ${file.name}, ${events.length} events, ${Math.round(midiFile.durationMs / 1000)}s`);
+
+      // Start playback
+      playbackMidiFile(events, wsClients);
+
+      return json({ 
+        status: "playing", 
+        fileName: file.name,
+        eventCount: events.length, 
+        duration: midiFile.durationMs,
+        format: midiFile.format,
+        tracks: midiFile.trackCount
+      });
+    }
+
     return json({ error: "Not found" }, 404);
   } catch (err: any) {
     console.error("API error:", err);
@@ -227,6 +263,94 @@ async function playbackEvents(events: MidiEvent[], clients: Set<ServerWebSocket<
       const msg = JSON.stringify({ 
         type: "playback-event", 
         event,
+        progress,
+        eventIndex: i,
+        totalEvents: events.length
+      });
+      for (const ws of clients) ws.send(msg);
+    }
+  } catch (e) {
+    // Playback was stopped
+  }
+
+  playbackActive = false;
+  
+  // Notify clients playback ended
+  const endMsg = JSON.stringify({ type: "playback", status: "ended" });
+  for (const ws of clients) ws.send(endMsg);
+}
+
+// MIDI file playback with timing
+async function playbackMidiFile(events: MidiFileEvent[], clients: Set<ServerWebSocket<unknown>>): Promise<void> {
+  if (events.length === 0) return;
+
+  stopPlayback();
+  playbackActive = true;
+  playbackAbortController = new AbortController();
+
+  const totalDuration = events[events.length - 1].timeMs;
+  const playbackStart = Date.now();
+
+  // Notify clients playback started
+  const startMsg = JSON.stringify({ 
+    type: "playback", 
+    status: "started", 
+    totalEvents: events.length,
+    duration: totalDuration 
+  });
+  for (const ws of clients) ws.send(startMsg);
+
+  try {
+    for (let i = 0; i < events.length && playbackActive; i++) {
+      const event = events[i];
+      const targetTime = playbackStart + event.timeMs;
+      const delay = targetTime - Date.now();
+
+      if (delay > 0) {
+        await new Promise((resolve, reject) => {
+          const timeout = setTimeout(resolve, delay);
+          playbackAbortController?.signal.addEventListener('abort', () => {
+            clearTimeout(timeout);
+            reject(new Error('Playback stopped'));
+          });
+        });
+      }
+
+      if (!playbackActive) break;
+
+      // Send MIDI to output device
+      const channel = event.channel & 0x0f;
+      switch (event.type) {
+        case "noteon":
+          sendMidiMessage([0x90 | channel, event.note!, event.velocity!]);
+          break;
+        case "noteoff":
+          sendMidiMessage([0x80 | channel, event.note!, event.velocity || 0]);
+          break;
+        case "cc":
+          sendMidiMessage([0xb0 | channel, event.control!, event.value!]);
+          break;
+        case "pitchbend":
+          sendMidiMessage([0xe0 | channel, event.value! & 0x7f, (event.value! >> 7) & 0x7f]);
+          break;
+        case "program":
+          sendMidiMessage([0xc0 | channel, event.value!]);
+          break;
+      }
+
+      // Broadcast to WebSocket clients for visualization
+      const progress = totalDuration > 0 ? event.timeMs / totalDuration : 1;
+      const msg = JSON.stringify({ 
+        type: "playback-event", 
+        event: {
+          timestamp: Date.now(),
+          channel: event.channel,
+          type: event.type,
+          note: event.note,
+          velocity: event.velocity,
+          control: event.control,
+          value: event.value,
+        },
         progress,
         eventIndex: i,
         totalEvents: events.length
