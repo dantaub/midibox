@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MidiBox</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1a1a2e;
+            color: #eee;
+            min-height: 100vh;
+        }
+
+        header {
+            background: #16213e;
+            padding: 1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 2px solid #e94560;
+        }
+
+        h1 {
+            font-size: 1.5rem;
+        }
+
+        .status {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #666;
+        }
+
+        .status-dot.connected {
+            background: #4caf50;
+        }
+
+        .status-dot.recording {
+            background: #e94560;
+            animation: pulse 1s infinite;
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.5;
+            }
+        }
+
+        main {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 1rem;
+            padding: 1rem;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        @media (min-width: 768px) {
+            main {
+                grid-template-columns: 1fr 300px;
+            }
+        }
+
+        .card {
+            background: #16213e;
+            border-radius: 8px;
+            padding: 1rem;
+        }
+
+        .card h2 {
+            font-size: 1rem;
+            margin-bottom: 1rem;
+            color: #e94560;
+        }
+
+        /* Piano visualization */
+        .piano-container {
+            overflow-x: auto;
+            padding: 1rem 0;
+        }
+
+        .piano {
+            display: flex;
+            position: relative;
+            height: 120px;
+            min-width: 600px;
+        }
+
+        .white-key {
+            width: 24px;
+            height: 100%;
+            background: linear-gradient(to bottom, #fff 0%, #e8e8e8 100%);
+            border: 1px solid #999;
+            border-radius: 0 0 4px 4px;
+            transition: background 0.1s;
+        }
+
+        .white-key.active {
+            background: linear-gradient(to bottom, #e94560 0%, #c73e54 100%);
+        }
+
+        .black-key {
+            position: absolute;
+            width: 16px;
+            height: 70px;
+            background: linear-gradient(to bottom, #333 0%, #000 100%);
+            border-radius: 0 0 3px 3px;
+            z-index: 1;
+            transition: background 0.1s;
+        }
+
+        .black-key.active {
+            background: linear-gradient(to bottom, #e94560 0%, #a83248 100%);
+        }
+
+        /* Event log */
+        .event-log {
+            height: 300px;
+            overflow-y: auto;
+            font-family: 'Monaco', 'Consolas', monospace;
+            font-size: 0.85rem;
+        }
+
+        .event {
+            padding: 0.25rem 0.5rem;
+            border-bottom: 1px solid #1a1a2e;
+            display: flex;
+            gap: 1rem;
+        }
+
+        .event-time {
+            color: #666;
+            min-width: 80px;
+        }
+
+        .event-type {
+            color: #e94560;
+            min-width: 70px;
+        }
+
+        .event-note {
+            color: #4caf50;
+        }
+
+        .event-vel {
+            color: #2196f3;
+        }
+
+        /* Sessions panel */
+        .session-form {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+
+        .session-form input {
+            padding: 0.5rem;
+            border: none;
+            border-radius: 4px;
+            background: #1a1a2e;
+            color: #eee;
+        }
+
+        .session-form button {
+            padding: 0.75rem;
+            border: none;
+            border-radius: 4px;
+            background: #e94560;
+            color: white;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        .session-form button:hover {
+            background: #c73e54;
+        }
+
+        .session-list {
+            margin-top: 1rem;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .session-item {
+            padding: 0.5rem;
+            background: #1a1a2e;
+            border-radius: 4px;
+            margin-bottom: 0.5rem;
+            cursor: pointer;
+        }
+
+        .session-item:hover {
+            background: #252550;
+        }
+
+        .session-item .title {
+            font-weight: bold;
+        }
+
+        .session-item .meta {
+            font-size: 0.8rem;
+            color: #888;
+        }
+
+        /* Controls */
+        .controls {
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            padding: 0.5rem 1rem;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.9rem;
+        }
+
+        .btn-primary {
+            background: #e94560;
+            color: white;
+        }
+
+        .btn-secondary {
+            background: #333;
+            color: white;
+        }
+
+        .btn:hover {
+            opacity: 0.9;
+        }
+    </style>
+</head>
+
+<body>
+    <header>
+        <h1>🎹 MidiBox</h1>
+        <div class="status">
+            <div class="status-dot" id="statusDot"></div>
+            <span id="statusText">Connecting...</span>
+        </div>
+    </header>
+
+    <main>
+        <div class="primary">
+            <div class="card">
+                <h2>Live Piano</h2>
+                <div class="piano-container">
+                    <div class="piano" id="piano"></div>
+                </div>
+            </div>
+
+            <div class="card" style="margin-top: 1rem;">
+                <h2>Event Log</h2>
+                <div class="event-log" id="eventLog"></div>
+            </div>
+        </div>
+
+        <div class="sidebar">
+            <div class="card">
+                <h2>Save Session</h2>
+                <form class="session-form" id="sessionForm">
+                    <input type="text" name="performer" placeholder="Performer name">
+                    <input type="text" name="song" placeholder="Song name">
+                    <input type="number" name="minutes" placeholder="Last N minutes" value="5">
+                    <button type="submit">Save Session</button>
+                </form>
+            </div>
+
+            <div class="card" style="margin-top: 1rem;">
+                <h2>Sessions</h2>
+                <div class="session-list" id="sessionList"></div>
+            </div>
+
+            <div class="card" style="margin-top: 1rem;">
+                <h2>Controls</h2>
+                <div class="controls">
+                    <button class="btn btn-secondary" id="btnRefresh">Refresh MIDI</button>
+                    <button class="btn btn-secondary" id="btnPlayback">Playback</button>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // Piano keyboard setup
+        const piano = document.getElementById('piano')
+        const eventLog = document.getElementById('eventLog')
+        const statusDot = document.getElementById('statusDot')
+        const statusText = document.getElementById('statusText')
+
+        // Note names for display
+        const noteNames = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+        const blackKeyOffsets = [1, 2, 4, 5, 6] // Which white keys have black keys after them (0-indexed within octave)
+
+        function noteName(note) {
+            const octave = Math.floor(note / 12) - 1
+            const name = noteNames[note % 12]
+            return `${name}${octave}`
+        }
+
+        // Build piano (4 octaves, starting from C3 = MIDI 48)
+        const startNote = 36 // C2
+        const endNote = 96   // C7
+        const keys = {}
+
+        let whiteKeyIndex = 0
+        for (let note = startNote; note <= endNote; note++) {
+            const noteInOctave = note % 12
+            const isBlack = [1, 3, 6, 8, 10].includes(noteInOctave)
+
+            const key = document.createElement('div')
+            key.dataset.note = note
+
+            if (isBlack) {
+                key.className = 'black-key'
+                key.style.left = `${(whiteKeyIndex * 24) - 8}px`
+            } else {
+                key.className = 'white-key'
+                whiteKeyIndex++
+            }
+
+            keys[note] = key
+            piano.appendChild(key)
+        }
+
+        // Active notes tracking
+        const activeNotes = new Set()
+
+        function activateNote(note) {
+            if (keys[note]) {
+                keys[note].classList.add('active')
+                activeNotes.add(note)
+            }
+        }
+
+        function deactivateNote(note) {
+            if (keys[note]) {
+                keys[note].classList.remove('active')
+                activeNotes.delete(note)
+            }
+        }
+
+        // Event log
+        const maxLogEntries = 100
+
+        function addLogEntry(event) {
+            const entry = document.createElement('div')
+            entry.className = 'event'
+
+            const time = new Date(event.timestamp).toLocaleTimeString()
+            let details = ''
+
+            if (event.type === 'noteon' || event.type === 'noteoff') {
+                details = `<span class="event-note">${noteName(event.note)}</span> <span class="event-vel">vel:${event.velocity}</span>`
+            } else if (event.type === 'cc') {
+                details = `CC${event.control} = ${event.value}`
+            } else if (event.type === 'pitchbend') {
+                details = `bend: ${event.value}`
+            }
+
+            entry.innerHTML = `
+        <span class="event-time">${time}</span>
+        <span class="event-type">${event.type}</span>
+        ${details}
+      `
+
+            eventLog.insertBefore(entry, eventLog.firstChild)
+
+            // Trim old entries
+            while (eventLog.children.length > maxLogEntries) {
+                eventLog.removeChild(eventLog.lastChild)
+            }
+        }
+
+        // WebSocket connection
+        let ws
+        let reconnectTimeout
+
+        function connect() {
+            const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
+            ws = new WebSocket(`${protocol}//${location.host}/ws`)
+
+            ws.onopen = () => {
+                statusDot.className = 'status-dot connected recording'
+                statusText.textContent = 'Recording'
+                clearTimeout(reconnectTimeout)
+            }
+
+            ws.onclose = () => {
+                statusDot.className = 'status-dot'
+                statusText.textContent = 'Disconnected'
+                reconnectTimeout = setTimeout(connect, 2000)
+            }
+
+            ws.onerror = () => {
+                ws.close()
+            }
+
+            ws.onmessage = (e) => {
+                try {
+                    const data = JSON.parse(e.data)
+                    if (data.type === 'midi') {
+                        handleMidiEvent(data.event)
+                    }
+                } catch (err) {
+                    console.error('WebSocket message error:', err)
+                }
+            }
+        }
+
+        function handleMidiEvent(event) {
+            // Update piano visualization
+            if (event.type === 'noteon' && event.velocity > 0) {
+                activateNote(event.note)
+            } else if (event.type === 'noteoff' || (event.type === 'noteon' && event.velocity === 0)) {
+                deactivateNote(event.note)
+            }
+
+            // Add to log
+            addLogEntry(event)
+        }
+
+        // Session management
+        const sessionForm = document.getElementById('sessionForm')
+        const sessionList = document.getElementById('sessionList')
+
+        sessionForm.addEventListener('submit', async (e) => {
+            e.preventDefault()
+            const form = new FormData(sessionForm)
+            const minutes = parseInt(form.get('minutes')) || 5
+            const now = Date.now()
+
+            const session = {
+                start_time: now - (minutes * 60 * 1000),
+                end_time: now,
+                performer: form.get('performer') || null,
+                song_name: form.get('song') || null,
+            }
+
+            try {
+                const res = await fetch('/api/sessions', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(session),
+                })
+
+                if (res.ok) {
+                    sessionForm.reset()
+                    sessionForm.elements.minutes.value = '5'
+                    loadSessions()
+                }
+            } catch (err) {
+                console.error('Failed to save session:', err)
+            }
+        })
+
+        async function loadSessions() {
+            try {
+                const res = await fetch('/api/sessions')
+                const sessions = await res.json()
+
+                sessionList.innerHTML = sessions.map(s => `
+          <div class="session-item" data-start="${s.start_time}" data-end="${s.end_time}">
+            <div class="title">${s.song_name || 'Untitled'}</div>
+            <div class="meta">
+              ${s.performer || 'Unknown'} · 
+              ${new Date(s.start_time).toLocaleDateString()}
+            </div>
+          </div>
+        `).join('')
+            } catch (err) {
+                console.error('Failed to load sessions:', err)
+            }
+        }
+
+        // Controls
+        document.getElementById('btnRefresh').addEventListener('click', async () => {
+            try {
+                await fetch('/api/midi/stop', { method: 'POST' })
+                await fetch('/api/midi/start', { method: 'POST' })
+            } catch (err) {
+                console.error('Failed to refresh MIDI:', err)
+            }
+        })
+
+        document.getElementById('btnPlayback').addEventListener('click', async () => {
+            const selected = sessionList.querySelector('.session-item.selected')
+            if (!selected) {
+                alert('Select a session first')
+                return
+            }
+
+            try {
+                await fetch('/api/playback/start', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        start: parseInt(selected.dataset.start),
+                        end: parseInt(selected.dataset.end),
+                    }),
+                })
+            } catch (err) {
+                console.error('Playback failed:', err)
+            }
+        })
+
+        // Session selection
+        sessionList.addEventListener('click', (e) => {
+            const item = e.target.closest('.session-item')
+            if (item) {
+                sessionList.querySelectorAll('.session-item').forEach(i => i.classList.remove('selected'))
+                item.classList.add('selected')
+                item.style.background = '#e94560'
+            }
+        })
+
+        // Initialize
+        connect()
+        loadSessions();
+    </script>
+</body>
+
+</html>

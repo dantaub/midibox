@@ -1,0 +1,36 @@
+#!/sbin/openrc-run
+
+name="midibox"
+description="MidiBox MIDI recording service"
+
+# Configuration
+MIDIBOX_DIR="${MIDIBOX_DIR:-/home/tim/midibox}"
+MIDIBOX_USER="${MIDIBOX_USER:-tim}"
+MIDIBOX_PORT="${MIDIBOX_PORT:-4000}"
+MIDIBOX_LOG="${MIDIBOX_LOG:-/var/log/midibox.log}"
+
+command="/usr/bin/bun"
+command_args="run start"
+command_user="${MIDIBOX_USER}"
+directory="${MIDIBOX_DIR}"
+
+pidfile="/run/${RC_SVCNAME}.pid"
+command_background="yes"
+output_log="${MIDIBOX_LOG}"
+error_log="${MIDIBOX_LOG}"
+
+depend() {
+    need localmount
+    after bootmisc
+}
+
+start_pre() {
+    # Ensure log file exists and is writable
+    touch "${MIDIBOX_LOG}"
+    chown "${MIDIBOX_USER}" "${MIDIBOX_LOG}"
+    
+    # Ensure user has access to MIDI devices
+    if ! groups "${MIDIBOX_USER}" | grep -q audio; then
+        ewarn "User ${MIDIBOX_USER} is not in audio group - MIDI access may fail"
+    fi
+}

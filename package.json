@@ -1,0 +1,17 @@
+{
+  "name": "midibox",
+  "module": "index.ts",
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "private": true,
+  "scripts": {
+    "start": "bun run index.ts",
+    "dev": "bun --watch run index.ts",
+    "tui": "bun run src/tui.ts"
+  },
+  "type": "module"
+}
