@@ -52,8 +52,8 @@ function isBlackKey(note: number): boolean {
   return [1, 3, 6, 8, 10].includes(note % 12);
 }
 
-// Piano rendering (2 octaves visible at a time, scrolls based on played notes)
-let viewStartNote = 48; // Start at C3
+// Piano rendering - default view centered lower for full 88-key keyboard
+let viewStartNote = 36; // Start at C2 (can scroll down to A0 = 21)
 
 function renderPiano(): string[] {
   const lines: string[] = [];

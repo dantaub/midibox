@@ -1,5 +1,5 @@
 import { getRecent, getRange, createSession, listSessions, type MidiEvent, type Session } from "./db";
-import { startCapture, stopCapture, listInputs, listOutputs, openOutput, onMidiEvent, playEvent, closeOutput } from "./midi";
+import { startCapture, stopCapture, listInputs, listOutputs, openOutput, onMidiEvent, playEvent, closeOutput, sendMidiMessage } from "./midi";
 
 const PORT = 4000;
 
@@ -59,6 +59,15 @@ const server = Bun.serve({
         const data = JSON.parse(message.toString());
         if (data.type === "ping") {
           ws.send(JSON.stringify({ type: "pong" }));
+        } else if (data.type === "playNote") {
+          // Send note on/off to MIDI output
+          const { note, velocity, on } = data;
+          const channel = 0;
+          if (on) {
+            sendMidiMessage([0x90 | channel, note, velocity || 100]);
+          } else {
+            sendMidiMessage([0x80 | channel, note, 0]);
+          }
         }
       } catch (e) {
         // Ignore invalid messages

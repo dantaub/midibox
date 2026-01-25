@@ -71,20 +71,43 @@
             grid-template-columns: 1fr;
             gap: 1rem;
             padding: 1rem;
-            max-width: 1400px;
-            margin: 0 auto;
+            height: calc(100vh - 60px);
+            overflow: hidden;
         }
 
-        @media (min-width: 768px) {
+        @media (min-width: 900px) {
             main {
-                grid-template-columns: 1fr 300px;
+                grid-template-columns: 1fr 320px;
             }
+        }
+
+        .primary {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            min-height: 0;
+            overflow: hidden;
+        }
+
+        .sidebar {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            overflow-y: auto;
         }
 
         .card {
             background: #16213e;
             border-radius: 8px;
             padding: 1rem;
+            flex-shrink: 0;
+        }
+
+        .card.flex-grow {
+            flex: 1;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
         }
 
         .card h2 {
@@ -96,23 +119,25 @@
         /* Piano visualization */
         .piano-container {
             overflow-x: auto;
-            padding: 1rem 0;
+            padding: 0.5rem 0;
         }
 
         .piano {
             display: flex;
             position: relative;
-            height: 120px;
-            min-width: 600px;
+            height: 100px;
         }
 
         .white-key {
-            width: 24px;
+            width: 18px;
+            min-width: 18px;
             height: 100%;
             background: linear-gradient(to bottom, #fff 0%, #e8e8e8 100%);
             border: 1px solid #999;
-            border-radius: 0 0 4px 4px;
+            border-radius: 0 0 3px 3px;
             transition: background 0.1s;
+            cursor: pointer;
+            user-select: none;
         }
 
         .white-key.active {
@@ -121,12 +146,14 @@
 
         .black-key {
             position: absolute;
-            width: 16px;
-            height: 70px;
+            width: 12px;
+            height: 60px;
             background: linear-gradient(to bottom, #333 0%, #000 100%);
-            border-radius: 0 0 3px 3px;
+            border-radius: 0 0 2px 2px;
             z-index: 1;
             transition: background 0.1s;
+            cursor: pointer;
+            user-select: none;
         }
 
         .black-key.active {
@@ -135,17 +162,17 @@
 
         /* Event log */
         .event-log {
-            height: 300px;
+            flex: 1;
             overflow-y: auto;
             font-family: 'Monaco', 'Consolas', monospace;
-            font-size: 0.85rem;
+            font-size: 0.8rem;
         }
 
         .event {
-            padding: 0.25rem 0.5rem;
+            padding: 0.2rem 0.5rem;
             border-bottom: 1px solid #1a1a2e;
             display: flex;
-            gap: 1rem;
+            gap: 0.75rem;
         }
 
         .event-time {
@@ -211,6 +238,10 @@
 
         .session-item:hover {
             background: #252550;
+        }
+
+        .session-item.selected {
+            background: #e94560;
         }
 
         .session-item .title {
@@ -339,7 +370,7 @@
                 </div>
             </div>
 
-            <div class="card" style="margin-top: 1rem;">
+            <div class="card flex-grow">
                 <h2>Event Log</h2>
                 <div class="event-log" id="eventLog"></div>
             </div>
@@ -356,12 +387,12 @@
                 </form>
             </div>
 
-            <div class="card" style="margin-top: 1rem;">
+            <div class="card">
                 <h2>Sessions</h2>
                 <div class="session-list" id="sessionList"></div>
             </div>
 
-            <div class="card" style="margin-top: 1rem;">
+            <div class="card">
                 <h2>Playback</h2>
                 <div class="controls">
                     <div class="control-row">
@@ -383,7 +414,7 @@
                 </div>
             </div>
 
-            <div class="card" style="margin-top: 1rem;">
+            <div class="card">
                 <h2>MIDI</h2>
                 <div class="controls">
                     <button class="btn btn-secondary" id="btnRefresh">Refresh Devices</button>
@@ -409,9 +440,9 @@
             return `${name}${octave}`
         }
 
-        // Build piano (4 octaves, starting from C3 = MIDI 48)
-        const startNote = 36 // C2
-        const endNote = 96   // C7
+                // Build piano - full 88-key range (A0 to C8)
+                const startNote = 21 // A0 (lowest on 88-key piano)
+                const endNote = 108  // C8 (highest on 88-key piano)
         const keys = {}
 
         let whiteKeyIndex = 0
@@ -424,7 +455,7 @@
 
             if (isBlack) {
                 key.className = 'black-key'
-                key.style.left = `${(whiteKeyIndex * 24) - 8}px`
+                key.style.left = `${(whiteKeyIndex * 18) - 6}px`
             } else {
                 key.className = 'white-key'
                 whiteKeyIndex++
@@ -433,6 +464,84 @@
             keys[note] = key
             piano.appendChild(key)
         }
+
+                // Click/touch to play notes
+                const pressedKeys = new Set()
+
+                function sendNoteOn(note) {
+                    if (ws && ws.readyState === WebSocket.OPEN && !pressedKeys.has(note)) {
+                        pressedKeys.add(note)
+                        ws.send(JSON.stringify({ type: 'playNote', note, velocity: 100, on: true }))
+                        activateNote(note)
+                    }
+                }
+
+                function sendNoteOff(note) {
+                    if (ws && ws.readyState === WebSocket.OPEN && pressedKeys.has(note)) {
+                        pressedKeys.delete(note)
+                        ws.send(JSON.stringify({ type: 'playNote', note, on: false }))
+                        deactivateNote(note)
+                    }
+                }
+
+                // Mouse handlers
+                piano.addEventListener('mousedown', (e) => {
+                    const key = e.target.closest('.white-key, .black-key')
+                    if (key) {
+                        e.preventDefault()
+                        sendNoteOn(parseInt(key.dataset.note))
+                    }
+                })
+
+                document.addEventListener('mouseup', () => {
+                    pressedKeys.forEach(note => sendNoteOff(note))
+                })
+
+                piano.addEventListener('mouseleave', () => {
+                    pressedKeys.forEach(note => sendNoteOff(note))
+                })
+
+                piano.addEventListener('mouseover', (e) => {
+                    if (e.buttons === 1) {
+                        const key = e.target.closest('.white-key, .black-key')
+                        if (key) {
+                            const note = parseInt(key.dataset.note)
+                            // Release other keys when dragging
+                            pressedKeys.forEach(n => { if (n !== note) sendNoteOff(n) })
+                            sendNoteOn(note)
+                        }
+                    }
+                })
+
+                // Touch handlers for mobile
+                piano.addEventListener('touchstart', (e) => {
+                    e.preventDefault()
+                    for (const touch of e.changedTouches) {
+                        const key = document.elementFromPoint(touch.clientX, touch.clientY)?.closest('.white-key, .black-key')
+                        if (key) sendNoteOn(parseInt(key.dataset.note))
+                    }
+                }, { passive: false })
+
+                piano.addEventListener('touchend', (e) => {
+                    e.preventDefault()
+                    for (const touch of e.changedTouches) {
+                        const key = document.elementFromPoint(touch.clientX, touch.clientY)?.closest('.white-key, .black-key')
+                        if (key) sendNoteOff(parseInt(key.dataset.note))
+                    }
+                }, { passive: false })
+
+                piano.addEventListener('touchmove', (e) => {
+                    e.preventDefault()
+                    const currentNotes = new Set()
+                    for (const touch of e.touches) {
+                        const key = document.elementFromPoint(touch.clientX, touch.clientY)?.closest('.white-key, .black-key')
+                        if (key) currentNotes.add(parseInt(key.dataset.note))
+                    }
+                    // Release notes no longer touched
+                    pressedKeys.forEach(note => { if (!currentNotes.has(note)) sendNoteOff(note) })
+                    // Press new notes
+                    currentNotes.forEach(note => sendNoteOn(note))
+                }, { passive: false })
 
         // Active notes tracking
         const activeNotes = new Set()
@@ -711,9 +820,11 @@
         sessionList.addEventListener('click', (e) => {
             const item = e.target.closest('.session-item')
             if (item) {
-                sessionList.querySelectorAll('.session-item').forEach(i => i.classList.remove('selected'))
+                sessionList.querySelectorAll('.session-item').forEach(i => {
+                    i.classList.remove('selected')
+                    i.style.background = ''
+                })
                 item.classList.add('selected')
-                item.style.background = '#e94560'
             }
         })
 
