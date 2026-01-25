@@ -1,4 +1,4 @@
-import { getRecent, getRange, createSession, listSessions, type MidiEvent, type Session } from "./db";
+import { getRecent, getRange, createSession, listSessions, updateSessionById, deleteSessionById, type MidiEvent, type Session } from "./db";
 import { startCapture, stopCapture, listInputs, listOutputs, openOutput, onMidiEvent, playEvent, closeOutput, sendMidiMessage } from "./midi";
 import { parseMidiFile, getPlayableEvents, type MidiFileEvent } from "./midi-file";
 
@@ -109,6 +109,27 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
       const body: Session = await req.json();
       const id = createSession(body);
       return json({ id }, 201);
+    }
+
+    // PUT /api/sessions/:id
+    if (path.match(/^\/sessions\/\d+$/) && method === "PUT") {
+      const id = parseInt(path.split("/")[2]);
+      const body: Session = await req.json();
+      const success = updateSessionById(id, body);
+      if (success) {
+        return json({ success: true });
+      }
+      return json({ error: "Session not found" }, 404);
+    }
+
+    // DELETE /api/sessions/:id
+    if (path.match(/^\/sessions\/\d+$/) && method === "DELETE") {
+      const id = parseInt(path.split("/")[2]);
+      const success = deleteSessionById(id);
+      if (success) {
+        return json({ success: true });
+      }
+      return json({ error: "Session not found" }, 404);
     }
 
     // GET /api/midi/inputs

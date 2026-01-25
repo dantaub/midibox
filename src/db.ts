@@ -55,6 +55,16 @@ const insertSession = db.prepare(`
   VALUES ($start_time, $end_time, $performer, $song_name)
 `);
 
+const updateSession = db.prepare(`
+  UPDATE sessions
+  SET start_time = $start_time, end_time = $end_time, performer = $performer, song_name = $song_name
+  WHERE id = $id
+`);
+
+const deleteSession = db.prepare(`
+  DELETE FROM sessions WHERE id = $id
+`);
+
 const getSessions = db.prepare(`
   SELECT * FROM sessions ORDER BY start_time DESC
 `);
@@ -113,6 +123,22 @@ export function createSession(session: Session): number {
 
 export function listSessions(): Session[] {
   return getSessions.all() as Session[];
+}
+
+export function updateSessionById(id: number, session: Session): boolean {
+  const result = updateSession.run({
+    $id: id,
+    $start_time: session.start_time,
+    $end_time: session.end_time,
+    $performer: session.performer ?? null,
+    $song_name: session.song_name ?? null,
+  });
+  return result.changes > 0;
+}
+
+export function deleteSessionById(id: number): boolean {
+  const result = deleteSession.run({ $id: id });
+  return result.changes > 0;
 }
 
 export { db };
