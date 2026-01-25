@@ -5,8 +5,6 @@ type MidiEventCallback = (event: MidiEvent) => void;
 
 const listeners: Set<MidiEventCallback> = new Set();
 let inputReader: ReadableStreamDefaultReader<Uint8Array> | null = null;
-let inputFile: ReturnType<typeof Bun.file> | null = null;
-let outputHandle: number | null = null;
 let captureActive = false;
 
 export function onMidiEvent(callback: MidiEventCallback): () => void {
@@ -229,6 +227,8 @@ export async function stopCapture(): Promise<void> {
   }
 }
 
+let outputDevice: string | null = null;
+
 export async function openOutput(devicePath?: string): Promise<string> {
   const devices = await listOutputs();
 
@@ -236,25 +236,9 @@ export async function openOutput(devicePath?: string): Promise<string> {
     throw new Error("No MIDI output devices found");
   }
 
-  const selectedDevice = devicePath || devices[0];
-  console.log(`Opening raw MIDI output: ${selectedDevice}`);
-
-  // Open for writing using Bun's native file APIs
-  outputHandle = await Bun.write(selectedDevice, "");
-  // Note: We'll write directly to the device path
-
-  return selectedDevice;
-}
-
-let outputDevice: string | null = null;
-
-export async function openOutputDevice(devicePath?: string): Promise<string> {
-  const devices = await listOutputs();
-  if (devices.length === 0) {
-    throw new Error("No MIDI output devices found");
-  }
   outputDevice = devicePath || devices[0];
-  console.log(`MIDI output ready: ${outputDevice}`);
+  console.log(`Opening raw MIDI output: ${outputDevice}`);
+
   return outputDevice;
 }
 

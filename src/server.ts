@@ -138,9 +138,17 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
 
       // Get events and play them back
       const events = getRange(start, end);
-      playbackEvents(events);
       
-      return json({ status: "playing", eventCount: events.length });
+      // Start playback in background, streaming events to clients
+      playbackEvents(events, wsClients);
+      
+      return json({ status: "playing", eventCount: events.length, duration: events.length > 0 ? events[events.length - 1].timestamp - events[0].timestamp : 0 });
+    }
+
+    // POST /api/playback/stop  
+    if (path === "/playback/stop" && method === "POST") {
+      stopPlayback();
+      return json({ status: "stopped" });
     }
 
     return json({ error: "Not found" }, 404);
@@ -150,23 +158,81 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
   }
 }
 
-// Simple event playback with timing
-async function playbackEvents(events: MidiEvent[]): Promise<void> {
+// Playback state
+let playbackActive = false;
+let playbackAbortController: AbortController | null = null;
+
+function stopPlayback(): void {
+  playbackActive = false;
+  if (playbackAbortController) {
+    playbackAbortController.abort();
+    playbackAbortController = null;
+  }
+}
+
+// Event playback with timing and WebSocket broadcast
+async function playbackEvents(events: MidiEvent[], clients: Set<ServerWebSocket<unknown>>): Promise<void> {
   if (events.length === 0) return;
 
+  stopPlayback(); // Stop any existing playback
+  playbackActive = true;
+  playbackAbortController = new AbortController();
+
   const startTime = events[0].timestamp;
+  const endTime = events[events.length - 1].timestamp;
+  const totalDuration = endTime - startTime;
   const playbackStart = Date.now();
 
-  for (const event of events) {
-    const targetTime = playbackStart + (event.timestamp - startTime);
-    const delay = targetTime - Date.now();
+  // Notify clients playback started
+  const startMsg = JSON.stringify({ 
+    type: "playback", 
+    status: "started", 
+    totalEvents: events.length,
+    duration: totalDuration 
+  });
+  for (const ws of clients) ws.send(startMsg);
 
-    if (delay > 0) {
-      await new Promise((resolve) => setTimeout(resolve, delay));
+  try {
+    for (let i = 0; i < events.length && playbackActive; i++) {
+      const event = events[i];
+      const targetTime = playbackStart + (event.timestamp - startTime);
+      const delay = targetTime - Date.now();
+
+      if (delay > 0) {
+        await new Promise((resolve, reject) => {
+          const timeout = setTimeout(resolve, delay);
+          playbackAbortController?.signal.addEventListener('abort', () => {
+            clearTimeout(timeout);
+            reject(new Error('Playback stopped'));
+          });
+        });
+      }
+
+      if (!playbackActive) break;
+
+      // Send MIDI to output device
+      playEvent(event);
+
+      // Broadcast to WebSocket clients for visualization
+      const progress = totalDuration > 0 ? (event.timestamp - startTime) / totalDuration : 1;
+      const msg = JSON.stringify({ 
+        type: "playback-event", 
+        event,
+        progress,
+        eventIndex: i,
+        totalEvents: events.length
+      });
+      for (const ws of clients) ws.send(msg);
     }
-
-    playEvent(event);
+  } catch (e) {
+    // Playback was stopped
   }
+
+  playbackActive = false;
+  
+  // Notify clients playback ended
+  const endMsg = JSON.stringify({ type: "playback", status: "ended" });
+  for (const ws of clients) ws.send(endMsg);
 }
 
 function json(data: any, status = 200): Response {

@@ -227,6 +227,13 @@
             display: flex;
             gap: 0.5rem;
             flex-wrap: wrap;
+            flex-direction: column;
+        }
+
+        .control-row {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
         }
 
         .btn {
@@ -247,7 +254,68 @@
             color: white;
         }
 
+        .btn-stop {
+            background: #ff6b6b;
+            color: white;
+        }
+
         .btn:hover {
+            opacity: 0.9;
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        select {
+            padding: 0.5rem;
+            border: none;
+            border-radius: 4px;
+            background: #1a1a2e;
+            color: #eee;
+            flex: 1;
+        }
+
+        /* Progress bar */
+        .progress-container {
+            margin-top: 0.75rem;
+            display: none;
+        }
+
+        .progress-container.active {
+            display: block;
+        }
+
+        .progress-bar {
+            height: 8px;
+            background: #1a1a2e;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #e94560, #4caf50);
+            width: 0%;
+            transition: width 0.1s linear;
+        }
+
+        .progress-text {
+            font-size: 0.75rem;
+            color: #888;
+            margin-top: 0.25rem;
+            text-align: center;
+        }
+
+        /* Playback indicator on piano */
+        .white-key.playback {
+            background: linear-gradient(to bottom, #4caf50 0%, #388e3c 100%);
+        }
+
+        .black-key.playback {
+            background: linear-gradient(to bottom, #4caf50 0%, #2e7d32 100%);
+        }
             opacity: 0.9;
         }
     </style>
@@ -294,10 +362,31 @@
             </div>
 
             <div class="card" style="margin-top: 1rem;">
-                <h2>Controls</h2>
+                <h2>Playback</h2>
                 <div class="controls">
-                    <button class="btn btn-secondary" id="btnRefresh">Refresh MIDI</button>
-                    <button class="btn btn-secondary" id="btnPlayback">Playback</button>
+                    <div class="control-row">
+                        <label style="font-size: 0.85rem; color: #888;">Output:</label>
+                        <select id="outputSelect">
+                            <option value="">Loading...</option>
+                        </select>
+                    </div>
+                    <div class="control-row">
+                        <button class="btn btn-primary" id="btnPlayback">▶ Play</button>
+                        <button class="btn btn-stop" id="btnStop" disabled>⏹ Stop</button>
+                    </div>
+                    <div class="progress-container" id="progressContainer">
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="progressFill"></div>
+                        </div>
+                        <div class="progress-text" id="progressText">0%</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card" style="margin-top: 1rem;">
+                <h2>MIDI</h2>
+                <div class="controls">
+                    <button class="btn btn-secondary" id="btnRefresh">Refresh Devices</button>
                 </div>
             </div>
         </div>
@@ -347,19 +436,38 @@
 
         // Active notes tracking
         const activeNotes = new Set()
+        let isPlaying = false
+        const playbackNotes = new Set()
 
-        function activateNote(note) {
+        function activateNote(note, isPlayback = false) {
             if (keys[note]) {
-                keys[note].classList.add('active')
-                activeNotes.add(note)
+                if (isPlayback) {
+                    keys[note].classList.add('playback')
+                    playbackNotes.add(note)
+                } else {
+                    keys[note].classList.add('active')
+                    activeNotes.add(note)
+                }
             }
         }
 
-        function deactivateNote(note) {
+        function deactivateNote(note, isPlayback = false) {
             if (keys[note]) {
-                keys[note].classList.remove('active')
-                activeNotes.delete(note)
+                if (isPlayback) {
+                    keys[note].classList.remove('playback')
+                    playbackNotes.delete(note)
+                } else {
+                    keys[note].classList.remove('active')
+                    activeNotes.delete(note)
+                }
             }
+        }
+
+        function clearPlaybackNotes() {
+            playbackNotes.forEach(note => {
+                if (keys[note]) keys[note].classList.remove('playback')
+            })
+            playbackNotes.clear()
         }
 
         // Event log
@@ -423,6 +531,10 @@
                     const data = JSON.parse(e.data)
                     if (data.type === 'midi') {
                         handleMidiEvent(data.event)
+                    } else if (data.type === 'playback') {
+                        handlePlaybackStatus(data)
+                    } else if (data.type === 'playback-event') {
+                        handlePlaybackEvent(data)
                     }
                 } catch (err) {
                     console.error('WebSocket message error:', err)
@@ -433,13 +545,51 @@
         function handleMidiEvent(event) {
             // Update piano visualization
             if (event.type === 'noteon' && event.velocity > 0) {
-                activateNote(event.note)
+                activateNote(event.note, false)
             } else if (event.type === 'noteoff' || (event.type === 'noteon' && event.velocity === 0)) {
-                deactivateNote(event.note)
+                deactivateNote(event.note, false)
             }
 
             // Add to log
             addLogEntry(event)
+        }
+
+        function handlePlaybackStatus(data) {
+            const progressContainer = document.getElementById('progressContainer')
+            const btnPlayback = document.getElementById('btnPlayback')
+            const btnStop = document.getElementById('btnStop')
+
+            if (data.status === 'started') {
+                isPlaying = true
+                progressContainer.classList.add('active')
+                btnPlayback.disabled = true
+                btnStop.disabled = false
+            } else if (data.status === 'ended') {
+                isPlaying = false
+                progressContainer.classList.remove('active')
+                btnPlayback.disabled = false
+                btnStop.disabled = true
+                clearPlaybackNotes()
+                document.getElementById('progressFill').style.width = '0%'
+                document.getElementById('progressText').textContent = 'Complete'
+            }
+        }
+
+        function handlePlaybackEvent(data) {
+            const event = data.event
+            const progress = data.progress
+
+            // Update progress bar
+            const percent = Math.round(progress * 100)
+            document.getElementById('progressFill').style.width = `${percent}%`
+            document.getElementById('progressText').textContent = `${percent}% (${data.eventIndex + 1}/${data.totalEvents})`
+
+            // Update piano visualization for playback
+            if (event.type === 'noteon' && event.velocity > 0) {
+                activateNote(event.note, true)
+            } else if (event.type === 'noteoff' || (event.type === 'noteon' && event.velocity === 0)) {
+                deactivateNote(event.note, true)
+            }
         }
 
         // Session management
@@ -500,6 +650,7 @@
             try {
                 await fetch('/api/midi/stop', { method: 'POST' })
                 await fetch('/api/midi/start', { method: 'POST' })
+                await loadOutputs()
             } catch (err) {
                 console.error('Failed to refresh MIDI:', err)
             }
@@ -512,6 +663,9 @@
                 return
             }
 
+            const outputSelect = document.getElementById('outputSelect')
+            const output = outputSelect.value || undefined
+
             try {
                 await fetch('/api/playback/start', {
                     method: 'POST',
@@ -519,12 +673,39 @@
                     body: JSON.stringify({
                         start: parseInt(selected.dataset.start),
                         end: parseInt(selected.dataset.end),
+                        output
                     }),
                 })
             } catch (err) {
                 console.error('Playback failed:', err)
             }
         })
+
+        document.getElementById('btnStop').addEventListener('click', async () => {
+            try {
+                await fetch('/api/playback/stop', { method: 'POST' })
+            } catch (err) {
+                console.error('Stop failed:', err)
+            }
+        })
+
+        async function loadOutputs() {
+            const outputSelect = document.getElementById('outputSelect')
+            try {
+                const res = await fetch('/api/midi/outputs')
+                const outputs = await res.json()
+
+                if (outputs.length === 0) {
+                    outputSelect.innerHTML = '<option value="">No outputs found</option>'
+                } else {
+                    outputSelect.innerHTML = outputs.map((o, i) => 
+                        `<option value="${o}" ${i === 0 ? 'selected' : ''}>${o.split('/').pop()}</option>`
+                    ).join('')
+                }
+            } catch (err) {
+                outputSelect.innerHTML = '<option value="">Error loading outputs</option>'
+            }
+        }
 
         // Session selection
         sessionList.addEventListener('click', (e) => {
@@ -538,7 +719,8 @@
 
         // Initialize
         connect()
-        loadSessions();
+        loadSessions()
+        loadOutputs()
     </script>
 </body>
 
