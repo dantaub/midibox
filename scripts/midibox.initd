@@ -9,8 +9,8 @@ MIDIBOX_USER="${MIDIBOX_USER:-tim}"
 MIDIBOX_PORT="${MIDIBOX_PORT:-4000}"
 MIDIBOX_LOG="${MIDIBOX_LOG:-/var/log/midibox.log}"
 
-command="/usr/bin/bun"
-command_args="run start"
+command="/home/tim/.bun/bin/bun"
+command_args="run index.ts"
 command_user="${MIDIBOX_USER}"
 directory="${MIDIBOX_DIR}"
 

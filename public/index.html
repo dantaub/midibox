@@ -624,25 +624,42 @@
         // WebSocket connection
         let ws
         let reconnectTimeout
+            let reconnectAttempts = 0
+            const maxReconnectDelay = 30000 // Max 30 seconds between attempts
 
         function connect() {
+            // Clear any existing timeout
+            clearTimeout(reconnectTimeout)
+
+            // Close existing connection if any
+            if (ws) {
+                ws.onclose = null // Prevent triggering reconnect
+                ws.close()
+            }
+
+            statusDot.className = 'status-dot'
+            statusText.textContent = 'Connecting...'
+
             const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
             ws = new WebSocket(`${protocol}//${location.host}/ws`)
 
             ws.onopen = () => {
                 statusDot.className = 'status-dot connected recording'
                 statusText.textContent = 'Recording'
-                clearTimeout(reconnectTimeout)
+                reconnectAttempts = 0 // Reset on successful connection
             }
 
             ws.onclose = () => {
                 statusDot.className = 'status-dot'
-                statusText.textContent = 'Disconnected'
-                reconnectTimeout = setTimeout(connect, 2000)
+                // Exponential backoff: 1s, 2s, 4s, 8s... up to maxReconnectDelay
+                const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), maxReconnectDelay)
+                reconnectAttempts++
+                statusText.textContent = `Reconnecting in ${Math.round(delay / 1000)}s...`
+                reconnectTimeout = setTimeout(connect, delay)
             }
 
             ws.onerror = () => {
-                ws.close()
+                // Error will trigger onclose, which handles reconnection
             }
 
             ws.onmessage = (e) => {
