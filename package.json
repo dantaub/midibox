@@ -13,5 +13,11 @@
     "dev": "bun --watch run index.ts",
     "tui": "bun run src/tui.ts"
   },
-  "type": "module"
+  "trustedDependencies": [
+    "midi"
+  ],
+  "type": "module",
+  "dependencies": {
+    "jzz": "^1.9.6"
+  }
 }

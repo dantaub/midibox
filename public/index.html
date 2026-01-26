@@ -10,7 +10,7 @@
 
 <body>
     <header>
-        <h1>🎹 MidiBox</h1>
+        <h1>MidiBox</h1>
         <div class="status">
             <div class="status-dot" id="statusDot"></div>
             <span id="statusText">Connecting...</span>
@@ -30,22 +30,18 @@
                 <div class="timeline-header">
                     <h2>Timeline</h2>
                     <div class="timeline-controls">
-                        <button id="timelinePanLeft" class="btn-icon" title="Pan Left">⟵</button>
-                        <button id="timelineZoomIn" class="btn-icon" title="Zoom In">＋</button>
-                        <button id="timelineZoomOut" class="btn-icon" title="Zoom Out">－</button>
-                        <button id="timelinePanRight" class="btn-icon" title="Pan Right">⟶</button>
-                        <select id="timelineRange">
-                            <option value="5">5 min</option>
-                            <option value="15">15 min</option>
-                            <option value="30" selected>30 min</option>
-                            <option value="60">1 hour</option>
-                            <option value="180">3 hours</option>
-                        </select>
-                        <button id="timelineRefresh" title="Refresh / Return to now">🔄</button>
-                        <button id="timelinePlaySelection" class="btn-play" title="Play selection">▶</button>
-                        <button id="timelineSaveNew" class="btn-save" title="Save as new session">💾</button>
-                        <button id="timelineClear" title="Clear selection">✕</button>
-                        <button id="timelineResumeAuto" class="btn-icon hidden" title="Resume auto-scroll">⏩</button>
+                        <button id="timelinePanLeft" class="btn-icon" title="Pan Left (Arrow Left)">&#x2190;</button>
+                        <button id="timelineZoomIn" class="btn-icon" title="Zoom In (+)">+</button>
+                        <button id="timelineZoomOut" class="btn-icon" title="Zoom Out (-)">-</button>
+                        <button id="timelinePanRight" class="btn-icon" title="Pan Right (Arrow Right)">&#x2192;</button>
+                        <span class="timeline-separator">|</span>
+                        <button id="timelinePlaySelection" class="btn-play" title="Play selection (Space)" disabled>&#x25B6;</button>
+                        <button id="timelineStop" class="btn-stop-small" title="Stop (Esc)" disabled>&#x23F9;</button>
+                        <button id="timelineSaveNew" class="btn-save" title="Save selection as session" disabled>&#x1F4BE;</button>
+                        <button id="timelineClear" class="btn-icon" title="Clear selection (Esc)" disabled>&#x2715;</button>
+                        <span class="timeline-separator">|</span>
+                        <button id="timelineResumeAuto" class="btn-resume hidden" title="Return to live (Home)">&#x25B6; Live</button>
+                        <button id="timelineRefresh" class="btn-icon" title="Refresh">&#x21BB;</button>
                     </div>
                 </div>
                 <div class="timeline-container" id="timelineContainer">
@@ -69,25 +65,17 @@
         </div>
 
         <div class="sidebar">
-            <div class="card">
-                <h2 id="sessionFormTitle">New Session</h2>
-                <form class="session-form" id="sessionForm">
-                    <input type="hidden" name="id" value="">
-                    <input type="text" name="performer" placeholder="Performer name">
-                    <input type="text" name="song" placeholder="Song name">
-                    <div class="session-time-row">
-                        <label for="sessionStart">Start:</label>
-                        <input type="number" name="sessionStart" id="sessionStart" min="0" step="1">
-                        <label for="sessionEnd">End:</label>
-                        <input type="number" name="sessionEnd" id="sessionEnd" min="0" step="1">
-                    </div>
-                    <div class="session-form-buttons">
-                        <button type="submit" class="btn btn-primary" id="btnSaveSession">Save New</button>
-                        <button type="button" class="btn btn-secondary hidden" id="btnUpdateSession">Update</button>
-                        <button type="button" class="btn btn-stop hidden" id="btnDeleteSession">Delete</button>
-                        <button type="button" class="btn btn-secondary hidden" id="btnCancelEdit">Cancel</button>
-                    </div>
-                </form>
+            <!-- Session Edit Panel (shown when editing) -->
+            <div class="card edit-panel hidden" id="editPanel">
+                <h2>Edit Session</h2>
+                <div class="edit-time-info" id="editTimeInfo"></div>
+                <input type="text" id="editPerformer" placeholder="Performer name">
+                <input type="text" id="editSong" placeholder="Song name">
+                <div class="edit-buttons">
+                    <button class="btn btn-primary" id="btnEditSave">Save</button>
+                    <button class="btn btn-secondary" id="btnEditCancel">Cancel</button>
+                    <button class="btn btn-stop" id="btnEditDelete">Delete</button>
+                </div>
             </div>
 
             <div class="card">
@@ -105,8 +93,8 @@
                         </select>
                     </div>
                     <div class="control-row">
-                        <button class="btn btn-primary" id="btnPlayback">▶ Play</button>
-                        <button class="btn btn-stop" id="btnStop" disabled>⏹ Stop</button>
+                        <button class="btn btn-primary" id="btnPlayback">&#x25B6; Play</button>
+                        <button class="btn btn-stop" id="btnStop" disabled>&#x23F9; Stop</button>
                     </div>
                     <div class="progress-container" id="progressContainer">
                         <div class="progress-bar">
@@ -121,20 +109,36 @@
                 <h2>MIDI File</h2>
                 <div class="controls">
                     <input type="file" id="midiFileInput" accept=".mid,.midi" hidden>
-                    <button class="btn btn-secondary" id="btnSelectFile">📁 Select File</button>
+                    <button class="btn btn-secondary" id="btnSelectFile">Select File</button>
                     <div id="fileInfo" class="file-info"></div>
-                    <button class="btn btn-primary btn-file-play" id="btnPlayFile" disabled>▶ Play File</button>
+                    <button class="btn btn-primary btn-file-play" id="btnPlayFile" disabled>&#x25B6; Play File</button>
                 </div>
             </div>
 
             <div class="card">
-                <h2>MIDI</h2>
+                <h2>MIDI Devices</h2>
                 <div class="controls">
-                    <button class="btn btn-secondary" id="btnRefresh">Refresh Devices</button>
+                    <button class="btn btn-secondary" id="btnRefresh">Refresh</button>
                 </div>
             </div>
         </div>
     </main>
+
+    <!-- Legacy form elements (hidden, for backwards compatibility) -->
+    <form id="sessionForm" class="hidden">
+        <input type="hidden" name="id" value="">
+        <input type="hidden" name="performer">
+        <input type="hidden" name="song">
+        <input type="hidden" id="sessionStart">
+        <input type="hidden" id="sessionEnd">
+    </form>
+    <div class="hidden">
+        <span id="sessionFormTitle"></span>
+        <button id="btnSaveSession"></button>
+        <button id="btnUpdateSession"></button>
+        <button id="btnDeleteSession"></button>
+        <button id="btnCancelEdit"></button>
+    </div>
 
     <script src="app.js"></script>
 </body>

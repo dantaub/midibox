@@ -238,6 +238,48 @@ main {
 	background: #e94560;
 }
 
+/* Session Edit Panel */
+.edit-panel {
+	border: 1px solid #e94560;
+}
+
+.edit-panel h2 {
+	margin-bottom: 0.75rem;
+}
+
+.edit-time-info {
+	font-size: 0.8rem;
+	color: #888;
+	margin-bottom: 0.75rem;
+}
+
+.edit-panel input[type="text"] {
+	width: 100%;
+	padding: 0.5rem;
+	margin-bottom: 0.5rem;
+	border: none;
+	border-radius: 4px;
+	background: #1a1a2e;
+	color: #eee;
+	box-sizing: border-box;
+}
+
+.edit-panel input[type="text"]:focus {
+	outline: 1px solid #e94560;
+}
+
+.edit-buttons {
+	display: flex;
+	gap: 0.5rem;
+	margin-top: 0.5rem;
+}
+
+.edit-buttons .btn {
+	flex: 1;
+	padding: 0.4rem 0.5rem;
+	font-size: 0.85rem;
+}
+
 .session-item .title {
 	font-weight: bold;
 }
@@ -399,6 +441,9 @@ select {
 	border-radius: 4px;
 	overflow: hidden;
 	cursor: crosshair;
+	/* Prevent browser swipe-to-navigate gestures */
+	overscroll-behavior: none;
+	touch-action: none;
 }
 
 .timeline-canvas {
@@ -476,6 +521,16 @@ select {
 	background: #2a3a5a;
 }
 
+.timeline-controls .btn-stop-small {
+	background: #5a2a2a;
+	color: #ff6b6b;
+}
+
+.timeline-controls button:disabled {
+	opacity: 0.4;
+	cursor: not-allowed;
+}
+
 /* Session form time inputs */
 .session-time-row {
 	display: flex;
@@ -513,3 +568,27 @@ select {
 .hidden {
 	display: none !important;
 }
+
+/* Timeline separator */
+.timeline-separator {
+	color: #444;
+	font-size: 0.9rem;
+	padding: 0 0.25rem;
+}
+
+/* Resume button */
+.btn-resume {
+	padding: 0.25rem 0.75rem;
+	font-size: 0.75rem;
+	border: none;
+	border-radius: 3px;
+	background: #2a5a3a;
+	color: #4caf50;
+	cursor: pointer;
+	font-weight: bold;
+}
+
+.btn-resume:hover {
+	background: #3a7a4a;
+}
+
