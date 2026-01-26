@@ -1,5 +1,5 @@
 import { getRecent, getRange, createSession, listSessions, updateSessionById, deleteSessionById, type MidiEvent, type Session } from "./db";
-import { startCapture, stopCapture, listInputs, listOutputs, openOutput, onMidiEvent, playEvent, closeOutput, sendMidiMessage } from "./midi";
+import { startCapture, stopCapture, listInputs, listOutputs, openOutput, onMidiEvent, playEvent, closeOutput, sendMidiMessage, enableThru, disableThru, isThruEnabled, getThruOutput } from "./midi";
 import { parseMidiFile, getPlayableEvents, type MidiFileEvent } from "./midi-file";
 
 const PORT = 4000;
@@ -155,6 +155,27 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
     if (path === "/midi/stop" && method === "POST") {
       await stopCapture();
       return json({ status: "stopped" });
+    }
+
+    // GET /api/midi/thru - Get thru status
+    if (path === "/midi/thru" && method === "GET") {
+      return json({
+        enabled: isThruEnabled(),
+        output: getThruOutput()
+      });
+    }
+
+    // POST /api/midi/thru - Enable thru
+    if (path === "/midi/thru" && method === "POST") {
+      const body = await req.json().catch(() => ({}));
+      const outputName = await enableThru(body.output);
+      return json({ status: "enabled", output: outputName });
+    }
+
+    // DELETE /api/midi/thru - Disable thru
+    if (path === "/midi/thru" && method === "DELETE") {
+      await disableThru();
+      return json({ status: "disabled" });
     }
 
     // POST /api/playback/start

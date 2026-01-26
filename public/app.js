@@ -195,12 +195,12 @@ const ctx = timelineCanvas.getContext('2d')
 
 // Unified timeline state
 const timeline = {
-    // View bounds (wall-clock timestamps in ms)
-    viewStart: 0,
-    viewEnd: 0,
+    // View configuration
+    duration: 30 * 60 * 1000,  // time span in ms (default 30 minutes)
+    startTime: null,           // if null = live mode (end is now), if set = detached
 
-    // Mode: 'live' | 'detached' | 'playback'
-    mode: 'live',
+    // Playback mode (separate from live/detached)
+    isPlaying: false,
 
     // Selection (null when no selection)
     selection: null,  // { start: ms, end: ms }
@@ -222,6 +222,25 @@ const timeline = {
 
     // Canvas rendering
     dpr: window.devicePixelRatio || 1
+}
+
+// Helper functions for view bounds
+function getViewStart() {
+    if (timeline.startTime === null) {
+        return Date.now() - timeline.duration
+    }
+    return timeline.startTime
+}
+
+function getViewEnd() {
+    if (timeline.startTime === null) {
+        return Date.now()
+    }
+    return timeline.startTime + timeline.duration
+}
+
+function isLive() {
+    return timeline.startTime === null
 }
 
 const minNote = 21
@@ -254,21 +273,90 @@ function resizeCanvas() {
     drawTimeline()
 }
 
+// Save/restore timeline view state from localStorage
+function saveTimelineView() {
+    const state = {
+        duration: timeline.duration,
+        startTime: timeline.startTime
+    }
+    console.log('[Timeline] Saving state:', JSON.stringify(state))
+    localStorage.setItem('midibox-timeline-view', JSON.stringify(state))
+}
+
+function loadSavedTimelineView() {
+    try {
+        const raw = localStorage.getItem('midibox-timeline-view')
+        console.log('[Timeline] Raw localStorage:', raw)
+        if (raw) {
+            const state = JSON.parse(raw)
+
+            // Validate new format - duration must be a positive number
+            if (typeof state.duration !== 'number' || state.duration <= 0) {
+                console.log('[Timeline] Invalid/old localStorage format, clearing')
+                localStorage.removeItem('midibox-timeline-view')
+                return null
+            }
+
+            // Only restore detached views if recent enough (within last 30 days)
+            if (state.startTime !== null) {
+                const now = Date.now()
+                const maxAge = 30 * 24 * 60 * 60 * 1000
+                const viewEnd = state.startTime + state.duration
+                if (now - viewEnd > maxAge) {
+                    console.log('[Timeline] Saved view too old, ignoring')
+                    return null  // Too old, go to live mode
+                }
+            }
+            console.log('[Timeline] Loaded valid state:', JSON.stringify(state))
+            return state
+        }
+        console.log('[Timeline] No saved state found')
+    } catch (e) {
+        console.error('[Timeline] Failed to load saved view:', e)
+    }
+    return null
+}
+
 async function loadTimelineData() {
-    const now = Date.now()
-    // Default to 30 minutes view
-    const defaultMinutes = 30
-    timeline.viewEnd = now
-    timeline.viewStart = now - defaultMinutes * 60 * 1000
-    timeline.mode = 'live'
-    await fetchTimelineEvents(timeline.viewStart, timeline.viewEnd)
+    console.log('[Timeline] loadTimelineData called')
+    const saved = loadSavedTimelineView()
+
+    if (saved) {
+        console.log('[Timeline] Applying saved state:', JSON.stringify(saved))
+        timeline.duration = saved.duration
+        timeline.startTime = saved.startTime
+    } else {
+        console.log('[Timeline] No saved state, using defaults (live mode)')
+    }
+
+    console.log('[Timeline] After load - duration:', timeline.duration, 'startTime:', timeline.startTime, 'isLive:', isLive())
+
+    if (!isLive()) {
+        showResumeButton()
+    } else {
+        $('timelineResumeAuto').classList.add('hidden')
+    }
+
+    await fetchTimelineEvents(getViewStart(), getViewEnd())
+    updateTimeLabels()
+    drawTimeline()
+}
+
+// Force return to live mode (used by Resume button and Home key)
+async function returnToLive() {
+    timeline.startTime = null
+    $('timelineResumeAuto').classList.add('hidden')
+
+    await fetchTimelineEvents(getViewStart(), getViewEnd())
     updateTimeLabels()
     drawTimeline()
 }
 
 function updateTimeLabels() {
-    timelineStart.textContent = new Date(timeline.viewStart).toLocaleTimeString()
-    timelineEnd.textContent = new Date(timeline.viewEnd).toLocaleTimeString()
+    timelineStart.textContent = new Date(getViewStart()).toLocaleTimeString()
+    timelineEnd.textContent = new Date(getViewEnd()).toLocaleTimeString()
+    // Persist view state
+    saveTimelineView()
 }
 
 // Session overlay colors
@@ -297,12 +385,13 @@ function assignOverlapRows(sessions) {
     return rows
 }
 
-function drawSessionOverlays(width, height, duration) {
+function drawSessionOverlays(width, height, viewStart, viewEnd) {
     if (!timeline.sessions || timeline.sessions.length === 0) return
+    const duration = viewEnd - viewStart
 
     // Filter to visible sessions
     const visibleSessions = timeline.sessions.filter(s =>
-        s.end_time >= timeline.viewStart && s.start_time <= timeline.viewEnd
+        s.end_time >= viewStart && s.start_time <= viewEnd
     )
 
     if (visibleSessions.length === 0) return
@@ -314,8 +403,8 @@ function drawSessionOverlays(width, height, duration) {
     const rowHeight = Math.min(24, height / (maxRows + 1))
 
     sorted.forEach((session, i) => {
-        const x1 = Math.max(0, ((session.start_time - timeline.viewStart) / duration) * width)
-        const x2 = Math.min(width, ((session.end_time - timeline.viewStart) / duration) * width)
+        const x1 = Math.max(0, ((session.start_time - viewStart) / duration) * width)
+        const x2 = Math.min(width, ((session.end_time - viewStart) / duration) * width)
         const row = rows[i]
         const y = row * rowHeight
 
@@ -374,7 +463,9 @@ function drawSessionOverlays(width, height, duration) {
 function drawTimeline() {
     const width = timelineContainer.clientWidth
     const height = timelineContainer.clientHeight
-    const duration = timeline.viewEnd - timeline.viewStart
+    const viewStart = getViewStart()
+    const viewEnd = getViewEnd()
+    const duration = timeline.duration
     ctx.clearRect(0, 0, width, height)
 
     // Draw background grid (pitch lines)
@@ -391,9 +482,9 @@ function drawTimeline() {
     // Draw time grid (vertical lines every minute)
     ctx.strokeStyle = '#252550'
     const minuteMs = 60 * 1000
-    const startMinute = Math.ceil(timeline.viewStart / minuteMs) * minuteMs
-    for (let t = startMinute; t < timeline.viewEnd; t += minuteMs) {
-        const x = ((t - timeline.viewStart) / duration) * width
+    const startMinute = Math.ceil(viewStart / minuteMs) * minuteMs
+    for (let t = startMinute; t < viewEnd; t += minuteMs) {
+        const x = ((t - viewStart) / duration) * width
         ctx.beginPath()
         ctx.moveTo(x, 0)
         ctx.lineTo(x, height)
@@ -401,7 +492,7 @@ function drawTimeline() {
     }
 
     // Draw session overlays as colored backgrounds
-    drawSessionOverlays(width, height, duration)
+    drawSessionOverlays(width, height, viewStart, viewEnd)
 
     // Build note on/off pairs for drawing bars
     const activeNotesMap = new Map()
@@ -418,14 +509,14 @@ function drawTimeline() {
         }
     }
     for (const [note, data] of activeNotesMap) {
-        noteBars.push({ note, start: data.start, end: timeline.viewEnd, velocity: data.velocity })
+        noteBars.push({ note, start: data.start, end: viewEnd, velocity: data.velocity })
     }
 
     // Draw note bars
     const noteHeight = height / noteRange
     for (const bar of noteBars) {
-        const x1 = ((bar.start - timeline.viewStart) / duration) * width
-        const x2 = ((bar.end - timeline.viewStart) / duration) * width
+        const x1 = ((bar.start - viewStart) / duration) * width
+        const x2 = ((bar.end - viewStart) / duration) * width
         const y = height - ((bar.note - minNote + 1) / noteRange) * height
         const brightness = 50 + (bar.velocity / 127) * 50
         const isBlack = [1, 3, 6, 8, 10].includes(bar.note % 12)
@@ -436,8 +527,8 @@ function drawTimeline() {
 
     // Draw selection overlay
     if (timeline.selection) {
-        const selX1 = ((timeline.selection.start - timeline.viewStart) / duration) * width
-        const selX2 = ((timeline.selection.end - timeline.viewStart) / duration) * width
+        const selX1 = ((timeline.selection.start - viewStart) / duration) * width
+        const selX2 = ((timeline.selection.end - viewStart) / duration) * width
         ctx.save()
         ctx.globalAlpha = 0.3
         ctx.fillStyle = '#e94560'
@@ -446,8 +537,8 @@ function drawTimeline() {
     }
 
     // Draw playback indicator
-    if (timeline.mode === 'playback' && timeline.playbackPosition != null) {
-        const x = ((timeline.playbackPosition - timeline.viewStart) / duration) * width
+    if (timeline.isPlaying && timeline.playbackPosition != null) {
+        const x = ((timeline.playbackPosition - viewStart) / duration) * width
         if (x >= 0 && x <= width) {
             ctx.save()
             // Red playback line
@@ -475,14 +566,12 @@ function drawTimeline() {
 
 function timeToX(time) {
     const width = timelineContainer.clientWidth
-    const duration = timeline.viewEnd - timeline.viewStart
-    return ((time - timeline.viewStart) / duration) * width
+    return ((time - getViewStart()) / timeline.duration) * width
 }
 
 function xToTime(x) {
     const width = timelineContainer.clientWidth
-    const duration = timeline.viewEnd - timeline.viewStart
-    return timeline.viewStart + (x / width) * duration
+    return getViewStart() + (x / width) * timeline.duration
 }
 
 function updateSelectionUI() {
@@ -573,11 +662,12 @@ function getSessionAtPosition(x, y) {
 
     const width = timelineContainer.clientWidth
     const height = timelineContainer.clientHeight
-    const duration = timeline.viewEnd - timeline.viewStart
+    const viewStart = getViewStart()
+    const viewEnd = getViewEnd()
 
     // Filter to visible sessions
     const visibleSessions = timeline.sessions.filter(s =>
-        s.end_time >= timeline.viewStart && s.start_time <= timeline.viewEnd
+        s.end_time >= viewStart && s.start_time <= viewEnd
     )
 
     if (visibleSessions.length === 0) return null
@@ -591,8 +681,8 @@ function getSessionAtPosition(x, y) {
     // Check each session
     for (let i = 0; i < sorted.length; i++) {
         const session = sorted[i]
-        const x1 = Math.max(0, ((session.start_time - timeline.viewStart) / duration) * width)
-        const x2 = Math.min(width, ((session.end_time - timeline.viewStart) / duration) * width)
+        const x1 = Math.max(0, ((session.start_time - viewStart) / timeline.duration) * width)
+        const x2 = Math.min(width, ((session.end_time - viewStart) / timeline.duration) * width)
         const row = rows[i]
         const sessionY = row * rowHeight
 
@@ -711,8 +801,8 @@ document.addEventListener('mouseup', (e) => {
     if (!dragState) return
 
     // If we dragged, switch to detached mode
-    if (dragState.dragging && timeline.mode === 'live') {
-        timeline.mode = 'detached'
+    if (dragState.dragging && isLive()) {
+        timeline.startTime = getViewStart()  // Freeze current view
         showResumeButton()
     }
 
@@ -788,20 +878,18 @@ timelineContainer.addEventListener('mousemove', (e) => {
 timelineCanvas.addEventListener('wheel', async (e) => {
     e.preventDefault()
 
-    if (timeline.mode === 'live') {
-        timeline.mode = 'detached'
+    // Enter detached mode if currently live
+    if (isLive()) {
+        timeline.startTime = getViewStart()
         showResumeButton()
     }
 
-    const currentDuration = timeline.viewEnd - timeline.viewStart
-
     // Horizontal scroll = pan
     if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
-        const panAmount = (e.deltaX / 500) * currentDuration
-        timeline.viewStart = Math.max(0, timeline.viewStart + panAmount)
-        timeline.viewEnd = timeline.viewEnd + panAmount
+        const panAmount = (e.deltaX / 500) * timeline.duration
+        timeline.startTime = Math.max(0, timeline.startTime + panAmount)
 
-        await ensureTimelineDataCovers(timeline.viewStart, timeline.viewEnd)
+        await ensureTimelineDataCovers(getViewStart(), getViewEnd())
         updateTimeLabels()
         drawTimeline()
         return
@@ -812,33 +900,29 @@ timelineCanvas.addEventListener('wheel', async (e) => {
 
     const rect = timelineCanvas.getBoundingClientRect()
     const ratio = e.offsetX / rect.width
-    const centerTime = timeline.viewStart + currentDuration * ratio
+    const centerTime = timeline.startTime + timeline.duration * ratio
 
     // Gentler zoom factor (1.1 instead of 1.2)
     const zoomFactor = e.deltaY > 0 ? 1.1 : 0.9
-    const newDuration = Math.max(5000, currentDuration * zoomFactor)  // Min 5 seconds
+    const newDuration = Math.max(5000, timeline.duration * zoomFactor)  // Min 5 seconds
 
     let newStart = centerTime - newDuration * ratio
-    let newEnd = centerTime + newDuration * (1 - ratio)
 
     // Try to keep selection visible when zooming
     if (timeline.selection) {
         const sel = timeline.selection
+        const newEnd = newStart + newDuration
         if (sel.start < newStart) {
-            const shift = newStart - sel.start + newDuration * 0.05
-            newStart -= shift
-            newEnd -= shift
+            newStart = sel.start - newDuration * 0.05
         } else if (sel.end > newEnd) {
-            const shift = sel.end - newEnd + newDuration * 0.05
-            newStart += shift
-            newEnd += shift
+            newStart = sel.end - newDuration + newDuration * 0.05
         }
     }
 
-    timeline.viewStart = Math.max(0, newStart)
-    timeline.viewEnd = newEnd
+    timeline.startTime = Math.max(0, newStart)
+    timeline.duration = newDuration
 
-    await ensureTimelineDataCovers(timeline.viewStart, timeline.viewEnd)
+    await ensureTimelineDataCovers(getViewStart(), getViewEnd())
     updateTimeLabels()
     drawTimeline()
 }, { passive: false })
@@ -868,12 +952,11 @@ document.addEventListener('keydown', async (e) => {
             break
         case 'Home':
             e.preventDefault()
-            loadTimelineData()
-            $('timelineResumeAuto').classList.add('hidden')
+            returnToLive()
             break
         case ' ':  // Space - toggle playback
             e.preventDefault()
-            if (timeline.mode === 'playback') {
+            if (timeline.isPlaying) {
                 await fetch('/api/playback/stop', { method: 'POST' })
             } else if (timeline.selection || timeline.selectedSessionId != null) {
                 $('timelinePlaySelection').click()
@@ -881,7 +964,7 @@ document.addEventListener('keydown', async (e) => {
             break
         case 'Escape':
             e.preventDefault()
-            if (timeline.mode === 'playback') {
+            if (timeline.isPlaying) {
                 await fetch('/api/playback/stop', { method: 'POST' })
             } else {
                 clearSelection()
@@ -931,10 +1014,10 @@ $('timelinePlaySelection').addEventListener('click', async () => {
     // Set view to show the selection with some padding
     const selDuration = playEnd - playStart
     const padding = selDuration * 0.1
-    timeline.viewStart = playStart - padding
-    timeline.viewEnd = playEnd + padding
+    timeline.startTime = playStart - padding
+    timeline.duration = selDuration + padding * 2
 
-    await ensureTimelineDataCovers(timeline.viewStart, timeline.viewEnd)
+    await ensureTimelineDataCovers(getViewStart(), getViewEnd())
     updateTimeLabels()
 
     try {
@@ -969,13 +1052,11 @@ $('timelineSaveNew').addEventListener('click', () => {
 
 function addEventToTimeline(event) {
     // Only update in live mode
-    if (timeline.mode !== 'live') return
+    if (!isLive()) return
 
     timeline.events.push(event)
-    if (event.timestamp >= timeline.viewStart && event.timestamp <= timeline.viewEnd + 60000) {
-        timeline.viewEnd = Math.max(timeline.viewEnd, Date.now())
-        drawTimeline()
-    }
+    // In live mode, the view auto-updates, just redraw
+    drawTimeline()
 }
 
 // Initialize timeline
@@ -985,12 +1066,8 @@ loadTimelineData()
 
 // Refresh timeline periodically (only in live mode)
 setInterval(() => {
-    if (timeline.mode !== 'live') return
-    if (Date.now() > timeline.viewEnd) {
-        loadTimelineData()
-    } else {
-        drawTimeline()
-    }
+    if (!isLive()) return
+    drawTimeline()
 }, 5000)
 
 // ===========================================
@@ -1058,11 +1135,11 @@ function handleMidiEvent(event) {
 function startPlaybackAnimation(startTime, endTime) {
     timeline.playbackBounds = { start: startTime, end: endTime }
     timeline.playbackStartedAt = null  // Will be calibrated by first server event
-    timeline.mode = 'playback'
+    timeline.isPlaying = true
     timeline.playbackPosition = startTime
 
     function animate() {
-        if (timeline.mode !== 'playback' || !timeline.playbackBounds) return
+        if (!timeline.isPlaying || !timeline.playbackBounds) return
 
         // Only animate if we've been calibrated by server
         if (timeline.playbackStartedAt != null) {
@@ -1100,7 +1177,7 @@ function stopPlaybackAnimation() {
     timeline.playbackBounds = null
     timeline.playbackStartedAt = null
     timeline.playbackPosition = null
-    timeline.mode = 'detached'
+    timeline.isPlaying = false
 }
 
 function handlePlaybackStatus(data) {
@@ -1289,27 +1366,8 @@ $('btnRefresh').addEventListener('click', async () => {
 })
 
 btnPlayback.addEventListener('click', async () => {
-    const selected = sessionList.querySelector('.session-item.selected')
-    if (!selected) {
-        alert('Select a session first')
-        return
-    }
-
-    const output = outputSelect.value || undefined
-
-    try {
-        await fetch('/api/playback/start', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                start: parseInt(selected.dataset.start),
-                end: parseInt(selected.dataset.end),
-                output
-            }),
-        })
-    } catch (err) {
-        console.error('Playback failed:', err)
-    }
+    // Use the same logic as the timeline play button
+    $('timelinePlaySelection').click()
 })
 
 btnStop.addEventListener('click', async () => {
@@ -1320,22 +1378,125 @@ btnStop.addEventListener('click', async () => {
     }
 })
 
+// Settings persistence
+function saveSettings() {
+    const settings = {
+        outputDevice: outputSelect.value,
+        thruEnabled: thruToggle.checked
+    }
+    localStorage.setItem('midibox-settings', JSON.stringify(settings))
+}
+
+function loadSettings() {
+    try {
+        const saved = localStorage.getItem('midibox-settings')
+        if (saved) {
+            return JSON.parse(saved)
+        }
+    } catch (e) {
+        console.error('Failed to load settings:', e)
+    }
+    return null
+}
+
 async function loadOutputs() {
     try {
         const res = await fetch('/api/midi/outputs')
         const outputs = await res.json()
+        const settings = loadSettings()
 
         if (outputs.length === 0) {
             outputSelect.innerHTML = '<option value="">No outputs found</option>'
         } else {
-            outputSelect.innerHTML = outputs.map((o, i) =>
-                `<option value="${o}" ${i === 0 ? 'selected' : ''}>${o.split('/').pop()}</option>`
-            ).join('')
+            // Try to restore saved output device
+            const savedOutput = settings?.outputDevice
+            outputSelect.innerHTML = outputs.map((o) => {
+                const isSelected = savedOutput ? o === savedOutput : false
+                return `<option value="${o}" ${isSelected ? 'selected' : ''}>${o.split('/').pop()}</option>`
+            }).join('')
+
+            // If saved output wasn't found, select the first one
+            if (savedOutput && !outputs.includes(savedOutput)) {
+                outputSelect.selectedIndex = 0
+            }
         }
     } catch (err) {
         outputSelect.innerHTML = '<option value="">Error loading outputs</option>'
     }
 }
+
+// Save output device when changed
+outputSelect.addEventListener('change', () => {
+    saveSettings()
+})
+
+// MIDI Thru
+const thruToggle = $('thruToggle')
+const thruStatus = $('thruStatus')
+
+async function loadThruStatus() {
+    try {
+        const res = await fetch('/api/midi/thru')
+        const data = await res.json()
+
+        // If server says thru is disabled but we had it enabled before, re-enable it
+        const settings = loadSettings()
+        if (!data.enabled && settings?.thruEnabled) {
+            // Try to re-enable thru with the saved output device
+            const output = settings.outputDevice || outputSelect.value
+            try {
+                const enableRes = await fetch('/api/midi/thru', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ output })
+                })
+                const enableData = await enableRes.json()
+                thruToggle.checked = true
+                updateThruStatus(true, enableData.output)
+                return
+            } catch {
+                // Failed to re-enable, fall through to show server state
+            }
+        }
+
+        thruToggle.checked = data.enabled
+        updateThruStatus(data.enabled, data.output)
+    } catch (err) {
+        console.error('Failed to load thru status:', err)
+    }
+}
+
+function updateThruStatus(enabled, output) {
+    if (enabled) {
+        thruStatus.textContent = output ? output.split('/').pop() : 'On'
+        thruStatus.classList.add('active')
+    } else {
+        thruStatus.textContent = 'Off'
+        thruStatus.classList.remove('active')
+    }
+}
+
+thruToggle.addEventListener('change', async () => {
+    try {
+        if (thruToggle.checked) {
+            const output = outputSelect.value
+            const res = await fetch('/api/midi/thru', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ output })
+            })
+            const data = await res.json()
+            updateThruStatus(true, data.output)
+        } else {
+            await fetch('/api/midi/thru', { method: 'DELETE' })
+            updateThruStatus(false, null)
+        }
+        saveSettings()
+    } catch (err) {
+        console.error('Failed to toggle thru:', err)
+        thruToggle.checked = !thruToggle.checked
+    }
+})
 
 // Session selection - click to select and show on timeline
 async function selectSession(sessionId, startTime, endTime) {
@@ -1356,11 +1517,12 @@ async function selectSession(sessionId, startTime, endTime) {
     timeline.selection = null
     updateSelectionUI()
 
-    const viewDuration = timeline.viewEnd - timeline.viewStart
+    const viewStart = getViewStart()
+    const viewEnd = getViewEnd()
     const sessionDuration = endTime - startTime
 
     // Check if session is already fully visible
-    const isVisible = startTime >= timeline.viewStart && endTime <= timeline.viewEnd
+    const isVisible = startTime >= viewStart && endTime <= viewEnd
 
     if (isVisible) {
         // Already in view - just highlight, don't change viewport
@@ -1369,27 +1531,22 @@ async function selectSession(sessionId, startTime, endTime) {
     }
 
     // Need to scroll - switch to detached mode
-    timeline.mode = 'detached'
-
-    if (sessionDuration <= viewDuration) {
+    if (sessionDuration <= timeline.duration) {
         // Session fits in current zoom - center it
         const center = (startTime + endTime) / 2
-        timeline.viewStart = center - viewDuration / 2
-        timeline.viewEnd = center + viewDuration / 2
+        timeline.startTime = center - timeline.duration / 2
     } else {
         // Session too large for current zoom - show start near left edge
-        const padding = viewDuration * 0.1  // 10% padding from left
-        timeline.viewStart = startTime - padding
-        timeline.viewEnd = timeline.viewStart + viewDuration
+        const padding = timeline.duration * 0.1
+        timeline.startTime = startTime - padding
     }
 
     // Clamp to valid range
-    if (timeline.viewStart < 0) {
-        timeline.viewEnd -= timeline.viewStart
-        timeline.viewStart = 0
+    if (timeline.startTime < 0) {
+        timeline.startTime = 0
     }
 
-    await ensureTimelineDataCovers(timeline.viewStart, timeline.viewEnd)
+    await ensureTimelineDataCovers(getViewStart(), getViewEnd())
     updateTimeLabels()
     drawTimeline()
     showResumeButton()
@@ -1653,23 +1810,23 @@ const btnResumeAuto = $('timelineResumeAuto')
 
 // Zoom to selection or zoom in on center
 btnZoomIn.addEventListener('click', async () => {
-    if (timeline.mode === 'live') {
-        timeline.mode = 'detached'
+    // Enter detached mode if live
+    if (isLive()) {
+        timeline.startTime = getViewStart()
     }
 
     if (timeline.selection) {
         // Zoom to fit selection
-        timeline.viewStart = timeline.selection.start
-        timeline.viewEnd = timeline.selection.end
+        timeline.startTime = timeline.selection.start
+        timeline.duration = timeline.selection.end - timeline.selection.start
     } else {
-        // Zoom in on center
-        const center = (timeline.viewStart + timeline.viewEnd) / 2
-        const range = (timeline.viewEnd - timeline.viewStart) / 2
-        timeline.viewStart = center - range / 2
-        timeline.viewEnd = center + range / 2
+        // Zoom in on center (halve the duration)
+        const center = timeline.startTime + timeline.duration / 2
+        timeline.duration = timeline.duration / 2
+        timeline.startTime = center - timeline.duration / 2
     }
 
-    await ensureTimelineDataCovers(timeline.viewStart, timeline.viewEnd)
+    await ensureTimelineDataCovers(getViewStart(), getViewEnd())
     updateTimeLabels()
     drawTimeline()
     showResumeButton()
@@ -1677,38 +1834,36 @@ btnZoomIn.addEventListener('click', async () => {
 
 // Zoom out, keeping selection in view if present
 btnZoomOut.addEventListener('click', async () => {
-    if (timeline.mode === 'live') {
-        timeline.mode = 'detached'
+    // Enter detached mode if live
+    if (isLive()) {
+        timeline.startTime = getViewStart()
     }
 
-    let center, range
+    let center
     if (timeline.selection) {
         center = (timeline.selection.start + timeline.selection.end) / 2
-        range = (timeline.selection.end - timeline.selection.start)
     } else {
-        center = (timeline.viewStart + timeline.viewEnd) / 2
-        range = (timeline.viewEnd - timeline.viewStart)
+        center = timeline.startTime + timeline.duration / 2
     }
-    range = Math.max(1000, range * 2)
-    timeline.viewStart = Math.max(0, Math.round(center - range / 2))
-    timeline.viewEnd = Math.round(center + range / 2)
+    timeline.duration = Math.max(1000, timeline.duration * 2)
+    timeline.startTime = Math.max(0, center - timeline.duration / 2)
 
-    await ensureTimelineDataCovers(timeline.viewStart, timeline.viewEnd)
+    await ensureTimelineDataCovers(getViewStart(), getViewEnd())
     updateTimeLabels()
     drawTimeline()
     showResumeButton()
 })
 
 async function panTimeline(direction) {
-    if (timeline.mode === 'live') {
-        timeline.mode = 'detached'
+    // Enter detached mode if live
+    if (isLive()) {
+        timeline.startTime = getViewStart()
     }
 
-    const shift = Math.round((timeline.viewEnd - timeline.viewStart) / 4) * direction
-    timeline.viewStart = Math.max(0, timeline.viewStart + shift)
-    timeline.viewEnd += shift
+    const shift = Math.round(timeline.duration / 4) * direction
+    timeline.startTime = Math.max(0, timeline.startTime + shift)
 
-    await ensureTimelineDataCovers(timeline.viewStart, timeline.viewEnd)
+    await ensureTimelineDataCovers(getViewStart(), getViewEnd())
     updateTimeLabels()
     drawTimeline()
     showResumeButton()
@@ -1717,10 +1872,7 @@ async function panTimeline(direction) {
 btnPanLeft.addEventListener('click', () => panTimeline(-1))
 btnPanRight.addEventListener('click', () => panTimeline(1))
 
-btnResumeAuto.addEventListener('click', () => {
-    btnResumeAuto.classList.add('hidden')
-    loadTimelineData()
-})
+btnResumeAuto.addEventListener('click', () => returnToLive())
 
 // ===========================================
 // Initialize
@@ -1728,3 +1880,4 @@ btnResumeAuto.addEventListener('click', () => {
 connect()
 loadSessions()
 loadOutputs()
+loadThruStatus()

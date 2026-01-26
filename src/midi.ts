@@ -125,6 +125,12 @@ let jzzInput: any = null;
 let jzzOutput: any = null;
 let outputDevice: string | null = null;
 
+// MIDI Thru state
+let thruEnabled = false;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let thruOutput: any = null;
+let thruOutputDevice: string | null = null;
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let JZZ: any = null;
 
@@ -232,6 +238,9 @@ async function startCaptureMacOS(deviceName?: string): Promise<string> {
     // Skip real-time messages
     if (!msg[0] || msg[0] >= 0xf8) return;
 
+    // Forward through thru if enabled
+    forwardThru(msg);
+
     const parsed = parseMidiMessage(msg);
     if (parsed) {
       const event: MidiEvent = {
@@ -304,6 +313,9 @@ async function startCaptureLinux(devicePath?: string): Promise<string> {
           }
 
           if (expectedLength > 0 && buffer.length >= expectedLength) {
+            // Forward through thru if enabled
+            forwardThru(buffer);
+
             const parsed = parseMidiMessage(new Uint8Array(buffer));
             if (parsed) {
               const event: MidiEvent = {
@@ -462,4 +474,87 @@ export async function closeOutput(): Promise<void> {
     jzzOutput = null;
   }
   outputDevice = null;
+}
+
+// ===========================================
+// MIDI Thru (forward input to output)
+// ===========================================
+
+export async function enableThru(outputName?: string): Promise<string> {
+  if (isMacOS) {
+    const jzz = await getJZZ();
+    if (!jzz) {
+      throw new Error("JZZ not available");
+    }
+
+    const engine = await jzz();
+    const info = engine.info();
+
+    if (info.outputs.length === 0) {
+      throw new Error("No MIDI output devices found");
+    }
+
+    let selectedName = info.outputs[0].name;
+    if (outputName) {
+      const found = info.outputs.find((o: { name: string }) => o.name === outputName);
+      if (found) {
+        selectedName = found.name;
+      }
+    }
+
+    console.log(`Enabling MIDI thru to: ${selectedName}`);
+    thruOutput = await engine.openMidiOut(selectedName);
+    thruOutputDevice = selectedName;
+    thruEnabled = true;
+
+    return selectedName;
+  } else {
+    // Linux
+    const devices = await listOutputs();
+    if (devices.length === 0) {
+      throw new Error("No MIDI output devices found");
+    }
+
+    const selected = outputName ?? devices[0] ?? "";
+    thruOutputDevice = selected;
+    thruEnabled = true;
+    console.log(`Enabling MIDI thru to: ${selected}`);
+
+    return selected;
+  }
+}
+
+export async function disableThru(): Promise<void> {
+  thruEnabled = false;
+  if (thruOutput) {
+    try {
+      thruOutput.close();
+    } catch {}
+    thruOutput = null;
+  }
+  thruOutputDevice = null;
+  console.log("MIDI thru disabled");
+}
+
+export function isThruEnabled(): boolean {
+  return thruEnabled;
+}
+
+export function getThruOutput(): string | null {
+  return thruOutputDevice;
+}
+
+// Forward a MIDI event through thru if enabled
+function forwardThru(data: number[]): void {
+  if (!thruEnabled) return;
+
+  if (isMacOS) {
+    if (thruOutput) {
+      thruOutput.send(data);
+    }
+  } else {
+    if (thruOutputDevice) {
+      Bun.write(thruOutputDevice, new Uint8Array(data));
+    }
+  }
 }
