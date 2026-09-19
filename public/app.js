@@ -196,6 +196,7 @@ const timelineContainer = $('timelineContainer')
 const timelineSelection = $('timelineSelection')
 const timelineStart = $('timelineStart')
 const timelineEnd = $('timelineEnd')
+const timelineDuration = $('timelineDuration')
 const timelineSelectionInfo = $('timelineSelectionInfo')
 const ctx = timelineCanvas.getContext('2d')
 
@@ -431,12 +432,27 @@ async function returnToLive() {
     drawTimeline()
 }
 
+// Compact human-readable span, e.g. "5m", "1h 40s", "1m 30s"
+function formatDuration(ms) {
+    const total = Math.round(ms / 1000)
+    const h = Math.floor(total / 3600)
+    const m = Math.floor((total % 3600) / 60)
+    const s = total % 60
+    const parts = []
+    if (h) parts.push(`${h}h`)
+    if (m) parts.push(`${m}m`)
+    if (s || parts.length === 0) parts.push(`${s}s`)
+    return parts.join(' ')
+}
+
 function updateTimeLabels() {
     // Label the top and bottom edges of the view, whichever way time runs
     const top = timeline.flipped ? getViewEnd() : getViewStart()
     const bottom = timeline.flipped ? getViewStart() : getViewEnd()
     timelineStart.textContent = `\u2191 ${new Date(top).toLocaleTimeString()}`
     timelineEnd.textContent = `${new Date(bottom).toLocaleTimeString()} \u2193`
+    // Center label: the span currently in view
+    timelineDuration.textContent = `\u2195 ${formatDuration(getDuration())}`
     // Persist view state
     saveTimelineView()
 }

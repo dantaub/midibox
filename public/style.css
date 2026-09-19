@@ -660,6 +660,16 @@ select {
 	margin-top: 0.25rem;
 }
 
+.timeline-info-center {
+	display: flex;
+	gap: 0.5rem;
+	align-items: center;
+}
+
+#timelineDuration {
+	color: #888;
+}
+
 .timeline-selection-info {
 	color: #e94560;
 }
