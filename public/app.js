@@ -902,9 +902,9 @@ document.addEventListener('mouseup', (e) => {
     if (!dragState) return
 
     // If we dragged, switch to detached mode
-    if (dragState.dragging && isLive()) {
-        timeline.startTime = getViewStart()  // Freeze current view
-        updateLiveButton()
+    if (dragState.dragging) {
+        if (isLive()) timeline.startTime = getViewStart()  // Freeze current view
+        updateLiveButton()  // reconcile the controls either way
     }
 
     // If we clicked (not dragged), check if we clicked on a session
@@ -2220,6 +2220,46 @@ function updateDirectionControls() {
     btnPanRight.innerHTML = timeline.flipped ? '&#x2191;' : '&#x2193;'
 }
 
+// ===========================================
+// Fullscreen
+//
+// Uses the Fullscreen API where it exists, and a CSS mode everywhere else -
+// iPad Safari won't fullscreen anything but a <video>, so the class is what
+// actually does the work there.
+// ===========================================
+const btnFullscreen = $('timelineFullscreen')
+
+function setFullscreen(on) {
+    document.body.classList.toggle('fullscreen-mode', on)
+    btnFullscreen.classList.toggle('active', on)
+    btnFullscreen.title = on ? 'Leave fullscreen' : 'Fullscreen'
+    localStorage.setItem('midibox-fullscreen', on ? '1' : '0')
+
+    const el = document.documentElement
+    if (on && el.requestFullscreen && !document.fullscreenElement) {
+        el.requestFullscreen().catch(() => {})  // denied without a gesture; the CSS mode still applies
+    } else if (!on && document.fullscreenElement && document.exitFullscreen) {
+        document.exitFullscreen().catch(() => {})
+    }
+
+    // The canvas can only be measured once the layout has settled
+    requestAnimationFrame(() => {
+        resizeCanvas()
+        updateTimeLabels()
+    })
+}
+
+btnFullscreen.addEventListener('click', () => {
+    setFullscreen(!document.body.classList.contains('fullscreen-mode'))
+})
+
+// Leaving via Esc or the browser's own control should drop the CSS mode too
+document.addEventListener('fullscreenchange', () => {
+    if (!document.fullscreenElement && document.body.classList.contains('fullscreen-mode')) {
+        setFullscreen(false)
+    }
+})
+
 btnFlip.addEventListener('click', () => {
     timeline.flipped = !timeline.flipped
     saveTimelineDirection()
@@ -2333,6 +2373,7 @@ eventLogHeader.addEventListener('touchend', endLogDrag)
 // ===========================================
 updateLiveButton()
 updateDirectionControls()
+setFullscreen(localStorage.getItem('midibox-fullscreen') === '1')
 connect()
 loadSessions()
 loadOutputs().then(loadOutputStatus)

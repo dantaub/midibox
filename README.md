@@ -38,6 +38,8 @@ Then open <http://localhost:4000> and play.
 - **Playback** to the keyboard, with the notes lit up as they play
 - **MIDI thru**, click-to-play keys, and standard `.mid` file playback
 - **TUI client** for a screen attached to the box itself
+- **Tablet-friendly** — a fullscreen mode, touch gestures, and an installable
+  home-screen app on iPad
 
 ## Planned
 

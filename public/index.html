@@ -3,8 +3,14 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>MidiBox</title>
+    <!-- Add to Home Screen on iPad/iPhone runs it without browser chrome -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="MidiBox">
+    <meta name="theme-color" content="#16213e">
     <link rel="stylesheet" href="style.css">
 </head>
 
@@ -98,6 +104,7 @@
                     </div>
 
                     <div class="timeline-controls-side timeline-controls-right">
+                        <button id="timelineFullscreen" class="btn-icon" title="Fullscreen">&#x26F6;</button>
                         <button id="timelineFlip" class="btn-icon" title="Flip timeline direction">&#x21C5;</button>
                     </div>
                 </div>

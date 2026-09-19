@@ -41,6 +41,17 @@ Dragging on the timeline freezes the view on its own, so the tools appear
 exactly when you have something to use them on. **↻** reloads the window from
 the database.
 
+### Fullscreen
+
+**⛶**, left of the direction toggle, drops the header and sidebar and gives the
+keyboard and timeline the whole page. The same button brings them back, as does
+`Esc` where the browser's own fullscreen is in play. The mode is remembered, so
+a box that lives on a stand comes back up the way you left it.
+
+On an iPad, **Share → Add to Home Screen** is worth doing: launched from the
+home screen it runs without Safari's chrome at all, which combined with ⛶ leaves
+nothing on screen but the instrument.
+
 ### Selecting and saving
 
 Drag vertically on the timeline to select a span. Then:

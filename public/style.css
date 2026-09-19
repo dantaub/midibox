@@ -492,9 +492,18 @@ select {
 /* Timeline / Piano Roll */
 .timeline-card {
 	flex: 1;
-	min-height: 260px;
+	/* No min-height: .primary clips its overflow, so a card taller than its
+	   parent would hide the info row and the controls under it. */
+	min-height: 0;
 	display: flex;
 	flex-direction: column;
+}
+
+/* Everything but the canvas keeps its natural height */
+.piano-container,
+.timeline-info,
+.timeline-controls {
+	flex-shrink: 0;
 }
 
 .timeline-controls {
@@ -581,7 +590,7 @@ select {
 
 .timeline-container {
 	flex: 1;
-	min-height: 0;
+	min-height: 60px;
 	position: relative;
 	background: #0d1117;
 	border-radius: 4px;
@@ -1235,9 +1244,9 @@ select {
 		display: none;
 	}
 
-	/* The timeline panel is the main view now - give it room to breathe */
-	.timeline-card {
-		min-height: 55vh;
+	/* Give the timeline panel most of the screen; the sidebar scrolls below it */
+	main {
+		grid-template-rows: 58vh auto;
 	}
 
 	/* Keys are narrow at this width; a shorter keyboard leaves more timeline */
@@ -1289,4 +1298,101 @@ select {
 .tempo-slider:disabled {
 	opacity: 0.4;
 	cursor: not-allowed;
+}
+
+/* ===========================================
+   Fullscreen mode
+   =========================================== */
+body.fullscreen-mode header,
+body.fullscreen-mode .sidebar {
+	display: none;
+}
+
+body.fullscreen-mode main {
+	grid-template-columns: 1fr;
+	grid-template-rows: 1fr;
+	padding: 0.5rem;
+	padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+}
+
+body.fullscreen-mode .primary {
+	height: 100%;
+}
+
+/* ===========================================
+   Touch devices (iPad in particular)
+   =========================================== */
+html,
+body {
+	/* No rubber-banding when a drag runs off the timeline */
+	overscroll-behavior: none;
+	-webkit-tap-highlight-color: transparent;
+}
+
+button,
+select,
+.tab,
+.toggle {
+	/* Removes the 300ms double-tap-to-zoom delay on the controls */
+	touch-action: manipulation;
+}
+
+.piano {
+	touch-action: none;
+	-webkit-user-select: none;
+	user-select: none;
+}
+
+/* Keep the chrome clear of rounded corners and the camera housing */
+header {
+	padding-left: max(1rem, env(safe-area-inset-left));
+	padding-right: max(1rem, env(safe-area-inset-right));
+}
+
+main,
+.history-view {
+	padding-left: max(1rem, env(safe-area-inset-left));
+	padding-right: max(1rem, env(safe-area-inset-right));
+	padding-bottom: max(1rem, env(safe-area-inset-bottom));
+}
+
+/* Touch targets: a fingertip is about 44px */
+@media (pointer: coarse) {
+	.timeline-controls button,
+	.btn-live-toggle,
+	.btn-smooth {
+		min-height: 36px;
+		min-width: 36px;
+	}
+
+	.tempo-slider {
+		height: 28px;
+	}
+
+	.day-item,
+	.segment-item,
+	.session-item {
+		padding-top: 0.6rem;
+		padding-bottom: 0.6rem;
+	}
+}
+
+/* Keep the controls row on one line on phones */
+@media (max-width: 600px) {
+	/* The slider's tooltip still carries the figure */
+	.tempo-readout {
+		display: none;
+	}
+
+	.tempo-slider {
+		width: 70px;
+	}
+
+	.timeline-controls {
+		gap: 0.25rem;
+	}
+
+	.timeline-controls-main {
+		gap: 0.2rem;
+	}
 }
