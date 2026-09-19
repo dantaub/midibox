@@ -2,7 +2,8 @@
   "name": "midibox",
   "module": "index.ts",
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/bun": "latest",
+    "playwright-core": "^1.49.0"
   },
   "peerDependencies": {
     "typescript": "^5"
@@ -11,7 +12,10 @@
   "scripts": {
     "start": "bun run index.ts",
     "dev": "bun --watch run index.ts",
-    "tui": "bun run src/tui.ts"
+    "tui": "bun run src/tui.ts",
+    "test": "bun test test/db.test.ts test/api.test.ts",
+    "test:ui": "bun test test/ui.test.ts",
+    "test:all": "bun test"
   },
   "trustedDependencies": [
     "midi"

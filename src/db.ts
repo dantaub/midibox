@@ -1,6 +1,10 @@
 import { Database } from "bun:sqlite";
 
-const db = new Database("midibox.db", { create: true });
+// MIDIBOX_DB relocates the database - used by the tests, and handy if you'd
+// rather not keep it in the working directory
+const DB_PATH = process.env.MIDIBOX_DB || "midibox.db";
+
+const db = new Database(DB_PATH, { create: true });
 
 // Initialize schema
 db.run(`

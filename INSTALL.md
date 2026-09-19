@@ -119,7 +119,7 @@ Everything is optional; the defaults work.
 | Install / working directory | where you cloned it | `WorkingDirectory=` in the unit, `MIDIBOX_DIR` in `/etc/conf.d/midibox` |
 | Service user | the user who ran the installer | `User=` in the unit, `MIDIBOX_USER` in `/etc/conf.d/midibox` |
 | `bun` path | `command -v bun` | `ExecStart=` in the unit, `MIDIBOX_BUN` in `/etc/conf.d/midibox` |
-| Database file | `midibox.db` in the working directory | move the directory, or symlink the file |
+| Database file | `midibox.db` in the working directory | `MIDIBOX_DB=/path/to/file`, or symlink it |
 
 ### Changing the port
 
@@ -226,14 +226,17 @@ sudo systemctl stop midibox && cp midibox.db ~/midibox-backup.db && sudo systemc
 ```
 
 To keep it somewhere else (a bigger disk, say), stop the service, move the file,
-and symlink it back:
+and point `MIDIBOX_DB` at it in `/etc/default/midibox`:
 
 ```bash
 sudo systemctl stop midibox
-mv midibox.db /data/midibox.db
-ln -s /data/midibox.db midibox.db
+sudo mv midibox.db /data/midibox.db
+echo 'MIDIBOX_DB=/data/midibox.db' | sudo tee -a /etc/default/midibox
 sudo systemctl start midibox
 ```
+
+The unit's `ReadWritePaths=` covers the install directory only, so a database
+elsewhere needs that path added too (`sudo systemctl edit --full midibox`).
 
 ## Upgrading
 

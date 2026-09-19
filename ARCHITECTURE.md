@@ -110,6 +110,29 @@ on-screen keyboard line up to within a pixel at any width. Time maps to y, or to
 `height - y` when the direction is flipped — every drawing and hit-testing path
 goes through that one mapping.
 
+## Tests
+
+```bash
+bun test              # storage + API (fast, no browser)
+bun run test:ui       # browser tests, needs Chromium
+bun run test:all      # everything
+```
+
+| Suite | Covers |
+| ----- | ------ |
+| `test/db.test.ts` | Event round-trips, range and cutoff queries, session CRUD, overlap matching, segment splitting and summaries, day grouping across timezones |
+| `test/api.test.ts` | Every endpoint's shape, 404s, output connect failures, static files, the WebSocket ping |
+| `test/ui.test.ts` | Keyboard/timeline alignment at four widths, live mode issuing no requests, redraw cadence at both rates, the direction flip and its persistence, control swapping, nothing clipped at phone/tablet/desktop sizes, fullscreen |
+
+Both server suites run against a throwaway database — `test/setup.ts` points
+`MIDIBOX_DB` at a temp directory, so they never touch your recordings. The UI
+suite starts its own server on a random port and fails on any console or page
+error, which is what catches most regressions.
+
+The browser tests need a Chromium build. `bunx playwright install chromium`
+provides one; otherwise set `CHROMIUM_PATH`. Without either they skip rather
+than fail, so `bun run test:all` works on a machine with no browser.
+
 ## Gotchas
 
 - **`Bun.write(path)` truncates.** Fine for a character device, wrong for a

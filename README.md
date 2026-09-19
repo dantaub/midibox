@@ -21,8 +21,9 @@ Then open <http://localhost:4000> and play.
   (systemd, user units, OpenRC), ports, directories, backups, troubleshooting
 - **[USAGE.md](USAGE.md)** — the web UI, timeline, sessions, history, shortcuts
 - **[API.md](API.md)** — HTTP endpoints and the WebSocket protocol
-- **[ARCHITECTURE.md](ARCHITECTURE.md)** — how the pieces fit, for anyone
-  changing the code
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** — how the pieces fit, and the tests,
+  for anyone changing the code
+- **[CHANGELOG.md](CHANGELOG.md)** — what changed, and what upgrading needs
 
 ## What it does
 
