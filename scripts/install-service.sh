@@ -3,6 +3,7 @@
 #
 #   install-service.sh            install, refusing if already installed
 #   install-service.sh --force    reinstall over an existing installation
+#   install-service.sh --port 80  install and serve on this port
 #   install-service.sh --help
 
 set -e
@@ -11,21 +12,54 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 MIDIBOX_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 FORCE=""
-case "${1:-}" in
-    -f|--force)
-        FORCE=1
-        ;;
-    -h|--help)
-        sed -n '2,7p' "$0" | sed 's/^# \{0,1\}//'
-        exit 0
-        ;;
-    "")
-        ;;
-    *)
-        echo "Unknown option: $1 (try --help)" >&2
+PORT=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -f|--force)
+            FORCE=1
+            ;;
+        -p|--port)
+            PORT="${2:-}"
+            shift
+            ;;
+        --port=*)
+            PORT="${1#--port=}"
+            ;;
+        -h|--help)
+            sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1 (try --help)" >&2
+            exit 2
+            ;;
+    esac
+    shift
+done
+
+if [ -n "$PORT" ]; then
+    case "$PORT" in
+        ''|*[!0-9]*)
+            echo "--port needs a number, got: $PORT" >&2
+            exit 2
+            ;;
+    esac
+    if [ "$PORT" -lt 1 ] || [ "$PORT" -gt 65535 ]; then
+        echo "--port must be between 1 and 65535, got: $PORT" >&2
         exit 2
-        ;;
-esac
+    fi
+fi
+
+# Set MIDIBOX_PORT in a config file, replacing any existing line
+set_config_port() {
+    config="$1"
+    if [ -f "$config" ] && grep -qE '^[# ]*MIDIBOX_PORT=' "$config"; then
+        $SUDO sed -i "s|^[# ]*MIDIBOX_PORT=.*|MIDIBOX_PORT=$PORT|" "$config"
+    else
+        echo "MIDIBOX_PORT=$PORT" | $SUDO tee -a "$config" >/dev/null
+    fi
+    echo "Set MIDIBOX_PORT=$PORT in $config"
+}
 
 # ---------------------------------------------------------------
 # How to drive the service once it is installed. Printed after a
@@ -113,6 +147,7 @@ echo "  init:      $INIT"
 echo "  directory: $MIDIBOX_DIR"
 echo "  user:      $MIDIBOX_USER"
 echo "  bun:       $MIDIBOX_BUN"
+[ -n "$PORT" ] && echo "  port:      $PORT"
 
 # Make sure the service user can reach /dev/snd
 if ! id -nG "$MIDIBOX_USER" | tr ' ' '\n' | grep -qx audio; then
@@ -137,6 +172,13 @@ if [ "$INIT" = systemd ]; then
         "$SCRIPT_DIR/midibox.service" | $SUDO tee "$SYSTEMD_UNIT" >/dev/null
 
     [ -f /etc/default/midibox ] || $SUDO cp "$SCRIPT_DIR/midibox.default" /etc/default/midibox
+    [ -n "$PORT" ] && set_config_port /etc/default/midibox
+
+    # The unit carries AmbientCapabilities=CAP_NET_BIND_SERVICE, so a low port
+    # works without running as root
+    if [ -n "$PORT" ] && [ "$PORT" -lt 1024 ]; then
+        echo "Port $PORT is privileged; the unit grants CAP_NET_BIND_SERVICE to allow it."
+    fi
 
     # An OpenRC script left in /etc/init.d makes systemd generate a compat unit
     # ("lacks a native systemd unit file") that shadows this one.
@@ -181,6 +223,24 @@ else
             "$SCRIPT_DIR/midibox.confd" | $SUDO tee /etc/conf.d/midibox >/dev/null
     fi
 
+    [ -n "$PORT" ] && set_config_port /etc/conf.d/midibox
+
+    # OpenRC has no equivalent of AmbientCapabilities
+    if [ -n "$PORT" ] && [ "$PORT" -lt 1024 ] && [ "$MIDIBOX_USER" != root ]; then
+        echo ""
+        echo "Port $PORT is privileged and the service runs as $MIDIBOX_USER, so the"
+        echo "bind will fail unless you allow it. Pick one:"
+        echo ""
+        echo "  # let unprivileged processes bind from this port up (persists via sysctl.conf)"
+        echo "  sudo sysctl -w net.ipv4.ip_unprivileged_port_start=$PORT"
+        echo "  echo 'net.ipv4.ip_unprivileged_port_start=$PORT' | sudo tee -a /etc/sysctl.conf"
+        echo ""
+        echo "  # or grant the capability to the bun binary (redo it after a bun upgrade)"
+        echo "  sudo setcap cap_net_bind_service=+ep $MIDIBOX_BUN"
+        echo ""
+        echo "See INSTALL.md - 'Privileged ports' - for the redirect option."
+    fi
+
     $SUDO rc-update add midibox default
 
     echo ""
@@ -191,4 +251,4 @@ fi
 
 echo ""
 echo "TUI client: bun run tui"
-echo "Web client: http://localhost:4000"
+echo "Web client: http://localhost:${PORT:-4000}"

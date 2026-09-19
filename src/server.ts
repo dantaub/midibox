@@ -26,7 +26,29 @@ type ServerWebSocket<T> = {
   data: T;
 };
 
-const server = Bun.serve({
+function serveOrExplain(options: Parameters<typeof Bun.serve>[0]) {
+  try {
+    return Bun.serve(options);
+  } catch (err: any) {
+    if (err?.code === "EACCES" && PORT < 1024) {
+      console.error(`\nCannot bind port ${PORT}: ports below 1024 are privileged.\n`);
+      console.error("Options:");
+      console.error("  - systemd: the shipped unit grants CAP_NET_BIND_SERVICE, so reinstall");
+      console.error("    with ./scripts/install-service.sh --force and set MIDIBOX_PORT there");
+      console.error("  - allow it system-wide: sudo sysctl -w net.ipv4.ip_unprivileged_port_start=80");
+      console.error(`  - or redirect: keep MIDIBOX_PORT high and forward ${PORT} to it`);
+      console.error("\nSee INSTALL.md - 'Privileged ports'.\n");
+    } else if (err?.code === "EADDRINUSE") {
+      console.error(`\nPort ${PORT} is already in use - another MidiBox, or something else.`);
+      console.error("Stop it, or set MIDIBOX_PORT to a free port.\n");
+    } else {
+      console.error(err);
+    }
+    process.exit(1);
+  }
+}
+
+const server = serveOrExplain({
   port: PORT,
 
   async fetch(req, server) {

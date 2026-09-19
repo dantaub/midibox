@@ -136,6 +136,66 @@ then `sudo systemctl restart midibox`.
 
 **By hand:** `MIDIBOX_PORT=4100 bun run start`.
 
+**At install time:** `./scripts/install-service.sh --port 4100` writes it into
+the config file for whichever init system it finds.
+
+For ports below 1024, see [Privileged ports](#privileged-ports-80-443).
+
+### Privileged ports (80, 443)
+
+Ports below 1024 need privilege, so a service running as you can't bind them by
+default — the server exits with *"Cannot bind port 80: ports below 1024 are
+privileged"*.
+
+**systemd handles this for you.** The unit carries
+`AmbientCapabilities=CAP_NET_BIND_SERVICE`, which lets the service bind a low
+port while still running as your user (`CapabilityBoundingSet` limits it to that
+one capability and nothing else). Install straight onto port 80 with:
+
+```bash
+./scripts/install-service.sh --port 80
+```
+
+or set `MIDIBOX_PORT=80` in `/etc/default/midibox` and restart. If you installed
+before this was added, `./scripts/install-service.sh --force` rewrites the unit.
+
+**Without systemd**, pick one:
+
+```bash
+# Allow any process to bind from port 80 up
+sudo sysctl -w net.ipv4.ip_unprivileged_port_start=80
+echo 'net.ipv4.ip_unprivileged_port_start=80' | sudo tee -a /etc/sysctl.conf
+
+# Or grant the capability to the bun binary - redo it after a bun upgrade,
+# and note it applies to every program bun runs
+sudo setcap cap_net_bind_service=+ep "$(command -v bun)"
+```
+
+**Or redirect**, leaving MidiBox on 4000. Both rules are needed: the first for
+other machines, the second for requests from this one.
+
+```bash
+# nftables
+sudo nft add table ip nat
+sudo nft 'add chain ip nat prerouting { type nat hook prerouting priority dstnat; }'
+sudo nft 'add chain ip nat output { type nat hook output priority -100; }'
+sudo nft add rule ip nat prerouting tcp dport 80 redirect to :4000
+sudo nft add rule ip nat output ip daddr 127.0.0.1 tcp dport 80 redirect to :4000
+
+# iptables
+sudo iptables -t nat -A PREROUTING -p tcp --dport 80 -j REDIRECT --to-port 4000
+sudo iptables -t nat -A OUTPUT -o lo -p tcp --dport 80 -j REDIRECT --to-port 4000
+```
+
+Redirects are lost on reboot unless you save them — `nft list ruleset | sudo tee
+/etc/nftables.conf`, or `iptables-persistent` on Debian, `rc-update add iptables`
+on Alpine. The capability route has none of that upkeep, which is why the unit
+takes it.
+
+**A reverse proxy** (nginx, Caddy) is the better answer if this is reachable
+beyond your own network: it binds 80/443 itself, and can add TLS and a password,
+which MidiBox has no notion of.
+
 ### Changing the directory or user
 
 Edit the unit (`sudo systemctl edit --full midibox`) and change
