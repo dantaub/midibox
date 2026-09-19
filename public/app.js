@@ -1386,6 +1386,8 @@ function connect() {
                 handleMidiEvent(data.event)
             } else if (data.type === 'output') {
                 setOutputStatus(data.output)
+            } else if (data.type === 'input') {
+                setCurrentInput(data.input)
             } else if (data.type === 'playback') {
                 handlePlaybackStatus(data)
             } else if (data.type === 'playback-event') {
@@ -1642,16 +1644,6 @@ async function loadSessions() {
 // ===========================================
 // Playback Controls
 // ===========================================
-$('btnRefresh').addEventListener('click', async () => {
-    try {
-        await fetch('/api/midi/stop', { method: 'POST' })
-        await fetch('/api/midi/start', { method: 'POST' })
-        await loadOutputs()
-    } catch (err) {
-        console.error('Failed to refresh MIDI:', err)
-    }
-})
-
 btnPlayback.addEventListener('click', async () => {
     // Use the same logic as the timeline play button
     $('timelinePlaySelection').click()
@@ -1710,6 +1702,121 @@ async function loadOutputs() {
     } catch (err) {
         outputSelect.innerHTML = '<option value="">Error loading outputs</option>'
     }
+}
+
+// ===========================================
+// Input Device Selection (dropdown beside the status text)
+// ===========================================
+const btnInputMenu = $('btnInputMenu')
+const inputMenu = $('inputMenu')
+
+// Device the server is currently recording from, or null
+let currentInput = null
+
+function setCurrentInput(name) {
+    currentInput = name || null
+    btnInputMenu.title = currentInput
+        ? `Input: ${currentInput.split('/').pop()} - click to change`
+        : 'Select MIDI input'
+}
+
+async function loadInputStatus() {
+    try {
+        const res = await fetch('/api/midi/input')
+        const data = await res.json()
+        setCurrentInput(data.input)
+    } catch (err) {
+        console.error('Failed to load input status:', err)
+    }
+}
+
+async function renderInputMenu() {
+    let inputs = []
+    try {
+        const res = await fetch('/api/midi/inputs')
+        inputs = await res.json()
+    } catch (err) {
+        console.error('Failed to list inputs:', err)
+    }
+
+    const items = inputs.map(name => {
+        const selected = name === currentInput ? ' selected' : ''
+        return `<div class="input-menu-item${selected}" data-input="${name}">${name.split('/').pop()}</div>`
+    })
+    if (inputs.length === 0) {
+        items.push('<div class="input-menu-item">No inputs found</div>')
+    }
+    inputMenu.innerHTML = items.join('')
+        + '<div class="input-menu-sep"></div>'
+        + '<div class="input-menu-item input-menu-refresh" data-refresh="1">&#x21BB; Refresh</div>'
+}
+
+function closeInputMenu() {
+    inputMenu.classList.add('hidden')
+}
+
+btnInputMenu.addEventListener('click', async (e) => {
+    e.stopPropagation()
+    if (inputMenu.classList.contains('hidden')) {
+        await renderInputMenu()
+        inputMenu.classList.remove('hidden')
+    } else {
+        closeInputMenu()
+    }
+})
+
+// Close when clicking anywhere outside the menu
+document.addEventListener('click', (e) => {
+    if (inputMenu.classList.contains('hidden')) return
+    if (!inputMenu.contains(e.target) && e.target !== btnInputMenu) closeInputMenu()
+})
+
+inputMenu.addEventListener('click', async (e) => {
+    const item = e.target.closest('.input-menu-item')
+    if (!item) return
+    if (item.dataset.refresh) {
+        await refreshDevices()
+        await renderInputMenu()  // keep the menu open, showing the fresh list
+        return
+    }
+    const name = item.dataset.input
+    closeInputMenu()
+    if (!name || name === currentInput) return
+    await selectInput(name)
+})
+
+async function selectInput(name) {
+    try {
+        const res = await fetch('/api/midi/input', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ input: name }),
+        })
+        const data = await res.json()
+        if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
+        setCurrentInput(data.input)
+        defaultOutputToInput(data.input)
+    } catch (err) {
+        console.error('Failed to select input:', err)
+        alert(`Could not open MIDI input: ${err.message}`)
+    }
+}
+
+// Playback follows the chosen input by default, but only when a same-named
+// output exists. The output dropdown stays independently changeable.
+function defaultOutputToInput(inputName) {
+    if (!inputName) return
+    const match = [...outputSelect.options].find(o => o.value === inputName)
+    if (!match) return  // no matching output - leave playback untouched
+    outputSelect.value = inputName
+    saveSettings()
+    if (connectedOutput) connectOutput()  // follow only if already connected
+}
+
+// Re-scan devices (replaces the old MIDI Devices > Refresh button)
+async function refreshDevices() {
+    await loadOutputs()
+    await loadInputStatus()
 }
 
 // ===========================================
@@ -2413,6 +2520,7 @@ setFullscreen(localStorage.getItem('midibox-fullscreen') === '1')
 connect()
 loadSessions()
 loadOutputs().then(loadOutputStatus)
+loadInputStatus()
 loadThruStatus()
 loadEventLogState()
 updatePlayButtons()

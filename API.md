@@ -82,6 +82,8 @@ curl -X POST localhost:4000/api/sessions -H 'content-type: application/json' \
 | ------ | ---- | ------ |
 | `GET` | `/api/midi/inputs` | Device names (Linux: `/dev/snd/...` paths) |
 | `GET` | `/api/midi/outputs` | Same list on Linux; CoreMIDI names on macOS |
+| `GET` | `/api/midi/input` | `{input}` — device now recording, `null` when stopped |
+| `POST` | `/api/midi/input` | `{input}` — switch recording device (stop + start) |
 | `POST` | `/api/midi/start` | `{input?}` — (re)start capture |
 | `POST` | `/api/midi/stop` | Stop capture |
 
@@ -146,6 +148,7 @@ Connect to `ws://<host>:4000/ws`. Messages are JSON objects tagged by `type`.
 | `playback` | `{status: "started"\|"ended", totalEvents, duration}` | Playback boundaries |
 | `playback-event` | `{event, progress, eventIndex, totalEvents}` | Each event as it plays |
 | `output` | `{output}` | The output was connected or disconnected |
+| `input` | `{input}` | The recording input device changed |
 | `pong` | — | Reply to `ping` |
 
 ### Client to server

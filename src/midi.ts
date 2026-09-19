@@ -124,6 +124,7 @@ let jzzInput: any = null;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let jzzOutput: any = null;
 let outputDevice: string | null = null;
+let inputDevice: string | null = null;
 
 // MIDI Thru state
 let thruEnabled = false;
@@ -201,11 +202,11 @@ export async function listOutputs(): Promise<string[]> {
 // ===========================================
 
 export async function startCapture(devicePath?: string): Promise<string> {
-  if (isMacOS) {
-    return startCaptureMacOS(devicePath);
-  } else {
-    return startCaptureLinux(devicePath);
-  }
+  const name = isMacOS
+    ? await startCaptureMacOS(devicePath)
+    : await startCaptureLinux(devicePath);
+  inputDevice = name;
+  return name;
 }
 
 async function startCaptureMacOS(deviceName?: string): Promise<string> {
@@ -344,8 +345,14 @@ async function startCaptureLinux(devicePath?: string): Promise<string> {
   return selectedDevice;
 }
 
+/** Currently open MIDI input, or null when capture is stopped */
+export function getInputDevice(): string | null {
+  return inputDevice;
+}
+
 export async function stopCapture(): Promise<void> {
   captureActive = false;
+  inputDevice = null;
 
   if (jzzInput) {
     try {

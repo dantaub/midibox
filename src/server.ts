@@ -1,5 +1,5 @@
 import { getRecent, getRange, createSession, listSessions, updateSessionById, deleteSessionById, getDaySummaries, getActivitySegments, getSessionsInRange, type MidiEvent, type Session } from "./db";
-import { startCapture, stopCapture, listInputs, listOutputs, openOutput, onMidiEvent, playEvent, closeOutput, sendMidiMessage, enableThru, disableThru, isThruEnabled, getThruOutput, getOutputDevice } from "./midi";
+import { startCapture, stopCapture, listInputs, listOutputs, openOutput, onMidiEvent, playEvent, closeOutput, sendMidiMessage, enableThru, disableThru, isThruEnabled, getThruOutput, getOutputDevice, getInputDevice } from "./midi";
 import { parseMidiFile, getPlayableEvents, type MidiFileEvent } from "./midi-file";
 
 const PORT = Number(process.env.MIDIBOX_PORT ?? process.env.PORT ?? 4000) || 4000;
@@ -188,10 +188,25 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
       return json(outputs);
     }
 
+    // GET /api/midi/input - currently recording input
+    if (path === "/midi/input" && method === "GET") {
+      return json({ input: getInputDevice() });
+    }
+
+    // POST /api/midi/input { input } - switch the recording input device
+    if (path === "/midi/input" && method === "POST") {
+      const body = await req.json().catch(() => ({}));
+      await stopCapture();
+      const inputName = await startCapture(body.input);
+      broadcast({ type: "input", input: inputName });
+      return json({ status: "recording", input: inputName });
+    }
+
     // POST /api/midi/start
     if (path === "/midi/start" && method === "POST") {
       const body = await req.json().catch(() => ({}));
       const inputName = await startCapture(body.input);
+      broadcast({ type: "input", input: inputName });
       return json({ status: "recording", input: inputName });
     }
 
