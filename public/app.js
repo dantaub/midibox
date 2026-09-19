@@ -193,10 +193,14 @@ const timelineEnd = $('timelineEnd')
 const timelineSelectionInfo = $('timelineSelectionInfo')
 const ctx = timelineCanvas.getContext('2d')
 
+// Nice default zoom level for live mode - close enough to see recent activity,
+// wide enough that fast passages don't blow past the edge of the view
+const DEFAULT_LIVE_DURATION = 2 * 60 * 1000  // 2 minutes
+
 // Unified timeline state
 const timeline = {
     // View configuration
-    duration: 30 * 60 * 1000,  // time span in ms (default 30 minutes)
+    duration: DEFAULT_LIVE_DURATION,  // time span in ms
     startTime: null,           // if null = live mode (end is now), if set = detached
 
     // Playback mode (separate from live/detached)
@@ -345,6 +349,7 @@ async function loadTimelineData() {
 // Force return to live mode (used by Resume button and Home key)
 async function returnToLive() {
     timeline.startTime = null
+    timeline.duration = DEFAULT_LIVE_DURATION
     $('timelineResumeAuto').classList.add('hidden')
 
     await fetchTimelineEvents(getViewStart(), getViewEnd())
@@ -352,9 +357,24 @@ async function returnToLive() {
     drawTimeline()
 }
 
+function formatZoomDuration(ms) {
+    if (ms < 60 * 1000) return `${Math.round(ms / 1000)}s`
+    if (ms < 60 * 60 * 1000) {
+        const mins = ms / (60 * 1000)
+        return `${mins % 1 === 0 ? mins : mins.toFixed(1)}m`
+    }
+    const hrs = ms / (60 * 60 * 1000)
+    return `${hrs % 1 === 0 ? hrs : hrs.toFixed(1)}h`
+}
+
+function updateZoomLevel() {
+    $('timelineZoomLevel').textContent = formatZoomDuration(timeline.duration)
+}
+
 function updateTimeLabels() {
     timelineStart.textContent = new Date(getViewStart()).toLocaleTimeString()
     timelineEnd.textContent = new Date(getViewEnd()).toLocaleTimeString()
+    updateZoomLevel()
     // Persist view state
     saveTimelineView()
 }
@@ -1804,9 +1824,24 @@ btnPlayFile.addEventListener('click', async () => {
 // ===========================================
 const btnZoomIn = $('timelineZoomIn')
 const btnZoomOut = $('timelineZoomOut')
+const btnZoomLevel = $('timelineZoomLevel')
 const btnPanLeft = $('timelinePanLeft')
 const btnPanRight = $('timelinePanRight')
 const btnResumeAuto = $('timelineResumeAuto')
+
+// Reset zoom to the default "nice" level, keeping the current view centered
+btnZoomLevel.addEventListener('click', async () => {
+    const center = isLive() ? Date.now() : timeline.startTime + timeline.duration / 2
+    timeline.duration = DEFAULT_LIVE_DURATION
+
+    if (!isLive()) {
+        timeline.startTime = Math.max(0, center - timeline.duration / 2)
+    }
+
+    await ensureTimelineDataCovers(getViewStart(), getViewEnd())
+    updateTimeLabels()
+    drawTimeline()
+})
 
 // Zoom to selection or zoom in on center
 btnZoomIn.addEventListener('click', async () => {
