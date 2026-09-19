@@ -20,6 +20,12 @@ async function getRtMidi() {
   return RtMidi;
 }
 
+// MidiBox's own RtMidi ports self-list on ALSA ("RtMidi Input/Output Client").
+// They are our capture/output clients, never a device the user should pick, so
+// they're filtered out of the device lists.
+const OWN_CLIENT = /RtMidi (Input|Output) Client/;
+const realPorts = (names: string[]): string[] => names.filter((n) => !OWN_CLIENT.test(n));
+
 function findPort(port: any, name: string | undefined): number {
   const count = port.getPortCount();
   if (count === 0) return -1;
@@ -42,26 +48,19 @@ export class RtMidiTransport implements MidiTransport {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private output: any = null;
 
+  // Use the static enumerator, not `new Input()`: on ALSA, constructing an
+  // Input/Output registers a sequencer client that lingers (RtMidi frees it only
+  // on destroy(), and GC timing under Bun is unclear). Called on every dropdown
+  // open/Refresh, that leaked a "RtMidi ... Client" per call - the phantom
+  // entries this fixes.
   async listInputs(): Promise<string[]> {
     const midi = await getRtMidi();
-    const port = new midi.Input();
-    try {
-      const n = port.getPortCount();
-      return Array.from({ length: n }, (_, i) => port.getPortName(i));
-    } finally {
-      port.closePort?.();
-    }
+    return realPorts(midi.Input.getPortNames());
   }
 
   async listOutputs(): Promise<string[]> {
     const midi = await getRtMidi();
-    const port = new midi.Output();
-    try {
-      const n = port.getPortCount();
-      return Array.from({ length: n }, (_, i) => port.getPortName(i));
-    } finally {
-      port.closePort?.();
-    }
+    return realPorts(midi.Output.getPortNames());
   }
 
   async openInput(
@@ -72,7 +71,7 @@ export class RtMidiTransport implements MidiTransport {
     const port = new midi.Input();
     const idx = findPort(port, id);
     if (idx < 0) {
-      port.closePort?.();
+      port.destroy?.();
       throw new Error(id ? `MIDI input not found: ${id}` : "No MIDI input ports available");
     }
 
@@ -92,7 +91,7 @@ export class RtMidiTransport implements MidiTransport {
     const port = new midi.Output();
     const idx = findPort(port, id);
     if (idx < 0) {
-      port.closePort?.();
+      port.destroy?.();
       throw new Error(id ? `MIDI output not found: ${id}` : "No MIDI output ports available");
     }
 
@@ -111,8 +110,13 @@ export class RtMidiTransport implements MidiTransport {
 
   async closeInput(): Promise<void> {
     if (this.input) {
+      // destroy(), not just closePort(): releases the ALSA sequencer client so
+      // switching devices doesn't leave a "RtMidi Input Client" behind.
       try {
         this.input.closePort();
+      } catch {}
+      try {
+        this.input.destroy();
       } catch {}
       this.input = null;
     }
@@ -122,6 +126,9 @@ export class RtMidiTransport implements MidiTransport {
     if (this.output) {
       try {
         this.output.closePort();
+      } catch {}
+      try {
+        this.output.destroy();
       } catch {}
       this.output = null;
     }
