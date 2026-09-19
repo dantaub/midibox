@@ -1,4 +1,4 @@
-import { getRecent, getRange, createSession, listSessions, updateSessionById, deleteSessionById, type MidiEvent, type Session } from "./db";
+import { getRecent, getRange, createSession, listSessions, updateSessionById, deleteSessionById, getCurrentBank, setCurrentBank, getDaySummaries, getActivitySegments, getSessionsInRange, BANKS, type MidiEvent, type Session } from "./db";
 import { startCapture, stopCapture, listInputs, listOutputs, openOutput, onMidiEvent, playEvent, closeOutput, sendMidiMessage, enableThru, disableThru, isThruEnabled, getThruOutput } from "./midi";
 import { parseMidiFile, getPlayableEvents, type MidiFileEvent } from "./midi-file";
 
@@ -7,12 +7,17 @@ const PORT = 4000;
 // Track connected WebSocket clients for real-time updates
 const wsClients: Set<ServerWebSocket<unknown>> = new Set();
 
-// Broadcast MIDI events to all connected clients
-onMidiEvent((event) => {
-  const message = JSON.stringify({ type: "midi", event });
+// Broadcast a message to every connected client
+function broadcast(payload: unknown): void {
+  const message = JSON.stringify(payload);
   for (const ws of wsClients) {
     ws.send(message);
   }
+}
+
+// Broadcast MIDI events to all connected clients
+onMidiEvent((event) => {
+  broadcast({ type: "midi", event });
 });
 
 type ServerWebSocket<T> = {
@@ -82,20 +87,51 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
   const method = req.method;
 
   try {
-    // GET /api/events/recent?minutes=5
+    // GET /api/events/recent?minutes=5[&bank=A]
     if (path === "/events/recent" && method === "GET") {
       const minutes = parseInt(url.searchParams.get("minutes") || "5");
       const since = Date.now() - minutes * 60 * 1000;
-      const events = getRecent(since);
+      const events = getRecent(since, url.searchParams.get("bank"));
       return json(events);
     }
 
-    // GET /api/events/range?start=...&end=...
+    // GET /api/events/range?start=...&end=...[&bank=A]
     if (path === "/events/range" && method === "GET") {
       const start = parseInt(url.searchParams.get("start") || "0");
       const end = parseInt(url.searchParams.get("end") || String(Date.now()));
-      const events = getRange(start, end);
+      const events = getRange(start, end, url.searchParams.get("bank"));
       return json(events);
+    }
+
+    // GET /api/bank - current recording bank
+    if (path === "/bank" && method === "GET") {
+      return json({ bank: getCurrentBank(), banks: BANKS });
+    }
+
+    // POST /api/bank { bank: "A" | null } - tag incoming notes with this bank
+    if (path === "/bank" && method === "POST") {
+      const body = await req.json().catch(() => ({}));
+      const bank = setCurrentBank(body.bank);
+      broadcast({ type: "bank", bank });
+      return json({ bank, banks: BANKS });
+    }
+
+    // GET /api/history/days?tz=<getTimezoneOffset()>[&bank=A][&limit=500]
+    if (path === "/history/days" && method === "GET") {
+      const tz = parseInt(url.searchParams.get("tz") || "0");
+      const limit = parseInt(url.searchParams.get("limit") || "500");
+      const days = getDaySummaries(Number.isFinite(tz) ? tz : 0, url.searchParams.get("bank"), limit);
+      return json(days);
+    }
+
+    // GET /api/history/segments?start=&end=[&bank=A][&gap=60000]
+    if (path === "/history/segments" && method === "GET") {
+      const start = parseInt(url.searchParams.get("start") || "0");
+      const end = parseInt(url.searchParams.get("end") || String(Date.now()));
+      const gap = parseInt(url.searchParams.get("gap") || "60000");
+      const bank = url.searchParams.get("bank");
+      const segments = getActivitySegments(start, end, bank, Number.isFinite(gap) ? gap : 60000);
+      return json({ start, end, segments, sessions: getSessionsInRange(start, end, bank) });
     }
 
     // GET /api/sessions
@@ -181,15 +217,15 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
     // POST /api/playback/start
     if (path === "/playback/start" && method === "POST") {
       const body = await req.json();
-      const { start, end, output } = body;
-      
+      const { start, end, output, bank } = body;
+
       // Open output if specified
       if (output) {
         await openOutput(output);
       }
 
-      // Get events and play them back
-      const events = getRange(start, end);
+      // Get events and play them back (optionally only one bank's notes)
+      const events = getRange(start, end, bank);
       
       // Start playback in background, streaming events to clients
       playbackEvents(events, wsClients);

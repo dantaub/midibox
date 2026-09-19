@@ -247,6 +247,32 @@ const minNote = 21
 const maxNote = 108
 const noteRange = maxNote - minNote + 1
 
+// Pitch axis geometry, laid out like the piano above: 52 white-key columns
+// with the black keys straddling them.
+const whiteKeyCount = 52
+const noteLayout = (() => {
+    const layout = {}
+    let whiteIndex = 0
+    for (let note = minNote; note <= maxNote; note++) {
+        const isBlack = [1, 3, 6, 8, 10].includes(note % 12)
+        if (isBlack) {
+            layout[note] = { offset: whiteIndex - 0.34, width: 0.68, isBlack }
+        } else {
+            layout[note] = { offset: whiteIndex, width: 1, isBlack }
+            whiteIndex++
+        }
+    }
+    return layout
+})()
+
+// Pixel span of a note on the (horizontal) pitch axis
+function noteToX(note, width) {
+    const unit = width / whiteKeyCount
+    const spot = noteLayout[note]
+    if (!spot) return { x: 0, w: unit }
+    return { x: spot.offset * unit, w: Math.max(2, spot.width * unit) }
+}
+
 async function fetchTimelineEvents(start, end) {
     try {
         const res = await fetch(`/api/events/range?start=${start}&end=${end}`)
@@ -353,8 +379,9 @@ async function returnToLive() {
 }
 
 function updateTimeLabels() {
-    timelineStart.textContent = new Date(getViewStart()).toLocaleTimeString()
-    timelineEnd.textContent = new Date(getViewEnd()).toLocaleTimeString()
+    // The timeline runs downward, so these read as top and bottom edges
+    timelineStart.textContent = `\u2191 ${new Date(getViewStart()).toLocaleTimeString()}`
+    timelineEnd.textContent = `${new Date(getViewEnd()).toLocaleTimeString()} \u2193`
     // Persist view state
     saveTimelineView()
 }
@@ -368,93 +395,101 @@ const sessionColors = [
     { bg: 'rgba(236, 72, 153, 0.25)', border: 'rgba(236, 72, 153, 0.8)' },   // pink
 ]
 
-// Calculate row assignments for overlapping sessions
-function assignOverlapRows(sessions) {
-    const rows = []
-    const rowEnds = []  // tracks when each row becomes free
+// Calculate lane assignments for overlapping sessions.
+// The timeline runs top-to-bottom, so lanes are side-by-side columns.
+function assignOverlapLanes(sessions) {
+    const lanes = []
+    const laneEnds = []  // tracks when each lane becomes free
 
     sessions.forEach(session => {
-        let row = 0
-        while (rowEnds[row] && rowEnds[row] > session.start_time) {
-            row++
+        let lane = 0
+        while (laneEnds[lane] && laneEnds[lane] > session.start_time) {
+            lane++
         }
-        rows.push(row)
-        rowEnds[row] = session.end_time
+        lanes.push(lane)
+        laneEnds[lane] = session.end_time
     })
 
-    return rows
+    return lanes
 }
 
-function drawSessionOverlays(width, height, viewStart, viewEnd) {
-    if (!timeline.sessions || timeline.sessions.length === 0) return
+// Geometry of session lanes, shared by drawing and hit testing
+function getSessionLayout(width, height, viewStart, viewEnd) {
+    if (!timeline.sessions || timeline.sessions.length === 0) return null
     const duration = viewEnd - viewStart
 
-    // Filter to visible sessions
     const visibleSessions = timeline.sessions.filter(s =>
         s.end_time >= viewStart && s.start_time <= viewEnd
     )
+    if (visibleSessions.length === 0) return null
 
-    if (visibleSessions.length === 0) return
-
-    // Sort by start time for overlap calculation
     const sorted = [...visibleSessions].sort((a, b) => a.start_time - b.start_time)
-    const rows = assignOverlapRows(sorted)
-    const maxRows = Math.max(...rows) + 1
-    const rowHeight = Math.min(24, height / (maxRows + 1))
+    const lanes = assignOverlapLanes(sorted)
+    const laneCount = Math.max(...lanes) + 1
+    const laneWidth = Math.min(110, width / Math.max(2, laneCount + 1))
 
-    sorted.forEach((session, i) => {
-        const x1 = Math.max(0, ((session.start_time - viewStart) / duration) * width)
-        const x2 = Math.min(width, ((session.end_time - viewStart) / duration) * width)
-        const row = rows[i]
-        const y = row * rowHeight
+    const bands = sorted.map((session, i) => ({
+        session,
+        x: lanes[i] * laneWidth,
+        laneWidth,
+        y1: Math.max(0, ((session.start_time - viewStart) / duration) * height),
+        y2: Math.min(height, ((session.end_time - viewStart) / duration) * height),
+    }))
 
+    return { bands, laneWidth }
+}
+
+function drawSessionOverlays(width, height, viewStart, viewEnd) {
+    const layout = getSessionLayout(width, height, viewStart, viewEnd)
+    if (!layout) return
+
+    layout.bands.forEach(({ session, x, laneWidth, y1, y2 }) => {
         const colorIndex = session.id % sessionColors.length
         const colors = sessionColors[colorIndex]
         const isSelected = session.id === timeline.selectedSessionId
+        const bandWidth = laneWidth - 2
+        const bandHeight = Math.max(2, y2 - y1)
 
         // Draw background
         ctx.fillStyle = isSelected ? colors.bg.replace('0.25', '0.4') : colors.bg
-        ctx.fillRect(x1, y, x2 - x1, rowHeight - 2)
+        ctx.fillRect(x, y1, bandWidth, bandHeight)
 
         // Draw border for selected session
         if (isSelected) {
             ctx.strokeStyle = colors.border
             ctx.lineWidth = 2
-            ctx.strokeRect(x1 + 1, y + 1, x2 - x1 - 2, rowHeight - 4)
+            ctx.strokeRect(x + 1, y1 + 1, bandWidth - 2, bandHeight - 2)
 
             // Only draw resize handles when in edit mode (edit panel is open)
             const isEditing = !$('editPanel').classList.contains('hidden')
             if (isEditing) {
-                const handleWidth = 6
-                const handleHeight = rowHeight - 2
+                const handleHeight = 6
                 ctx.fillStyle = colors.border
 
-                // Left handle
-                ctx.fillRect(x1, y, handleWidth, handleHeight)
+                // Start (top) handle
+                ctx.fillRect(x, y1, bandWidth, handleHeight)
 
-                // Right handle
-                ctx.fillRect(x2 - handleWidth, y, handleWidth, handleHeight)
+                // End (bottom) handle
+                ctx.fillRect(x, y2 - handleHeight, bandWidth, handleHeight)
 
                 // Store selected session bounds for hit testing (only in edit mode)
-                timeline.selectedSessionBounds = { x1, x2, y, rowHeight, sessionId: session.id }
+                timeline.selectedSessionBounds = { x, laneWidth, y1, y2, sessionId: session.id }
             } else {
                 // Clear bounds when not editing
                 timeline.selectedSessionBounds = null
             }
         }
 
-        // Draw label if wide enough
-        const labelWidth = x2 - x1
-        if (labelWidth > 50) {
+        // Draw label if tall enough
+        if (bandHeight > 16) {
             ctx.fillStyle = '#fff'
             ctx.font = '11px -apple-system, BlinkMacSystemFont, sans-serif'
             const label = session.song_name || session.performer || `Session ${session.id}`
-            const maxTextWidth = labelWidth - 8
             ctx.save()
             ctx.beginPath()
-            ctx.rect(x1, y, labelWidth, rowHeight)
+            ctx.rect(x, y1, bandWidth, bandHeight)
             ctx.clip()
-            ctx.fillText(label, x1 + 4, y + 14, maxTextWidth)
+            ctx.fillText(label, x + 4, y1 + 13, bandWidth - 8)
             ctx.restore()
         }
     })
@@ -468,26 +503,30 @@ function drawTimeline() {
     const duration = timeline.duration
     ctx.clearRect(0, 0, width, height)
 
-    // Draw background grid (pitch lines)
+    // Time runs top (earlier) to bottom (later/now); pitch runs left to right,
+    // matching the piano above.
+
+    // Draw background grid (pitch lines, one per octave)
     ctx.strokeStyle = '#1a1a2e'
     ctx.lineWidth = 1
-    for (let i = 0; i <= 12; i++) {
-        const y = (i / 12) * height
+    for (let note = minNote; note <= maxNote; note++) {
+        if (note % 12 !== 0) continue  // C of each octave
+        const { x } = noteToX(note, width)
         ctx.beginPath()
-        ctx.moveTo(0, y)
-        ctx.lineTo(width, y)
+        ctx.moveTo(x, 0)
+        ctx.lineTo(x, height)
         ctx.stroke()
     }
 
-    // Draw time grid (vertical lines every minute)
+    // Draw time grid (horizontal lines every minute)
     ctx.strokeStyle = '#252550'
     const minuteMs = 60 * 1000
     const startMinute = Math.ceil(viewStart / minuteMs) * minuteMs
     for (let t = startMinute; t < viewEnd; t += minuteMs) {
-        const x = ((t - viewStart) / duration) * width
+        const y = ((t - viewStart) / duration) * height
         ctx.beginPath()
-        ctx.moveTo(x, 0)
-        ctx.lineTo(x, height)
+        ctx.moveTo(0, y)
+        ctx.lineTo(width, y)
         ctx.stroke()
     }
 
@@ -512,47 +551,49 @@ function drawTimeline() {
         noteBars.push({ note, start: data.start, end: viewEnd, velocity: data.velocity })
     }
 
-    // Draw note bars
-    const noteHeight = height / noteRange
-    for (const bar of noteBars) {
-        const x1 = ((bar.start - viewStart) / duration) * width
-        const x2 = ((bar.end - viewStart) / duration) * width
-        const y = height - ((bar.note - minNote + 1) / noteRange) * height
-        const brightness = 50 + (bar.velocity / 127) * 50
-        const isBlack = [1, 3, 6, 8, 10].includes(bar.note % 12)
-        ctx.fillStyle = isBlack ? `hsl(340, 80%, ${brightness}%)` : `hsl(160, 70%, ${brightness}%)`
-        const barWidth = Math.max(2, x2 - x1)
-        ctx.fillRect(x1, y, barWidth, Math.max(1, noteHeight - 1))
+    // Draw note bars (vertical: they grow downward as time passes).
+    // White keys first so the narrower black-key bars stay on top.
+    for (const pass of [false, true]) {
+        for (const bar of noteBars) {
+            const spot = noteToX(bar.note, width)
+            const isBlack = [1, 3, 6, 8, 10].includes(bar.note % 12)
+            if (isBlack !== pass) continue
+            const y1 = ((bar.start - viewStart) / duration) * height
+            const y2 = ((bar.end - viewStart) / duration) * height
+            const brightness = 50 + (bar.velocity / 127) * 50
+            ctx.fillStyle = isBlack ? `hsl(340, 80%, ${brightness}%)` : `hsl(160, 70%, ${brightness}%)`
+            ctx.fillRect(spot.x, y1, spot.w - 1, Math.max(2, y2 - y1))
+        }
     }
 
-    // Draw selection overlay
+    // Draw selection overlay (a horizontal band spanning all pitches)
     if (timeline.selection) {
-        const selX1 = ((timeline.selection.start - viewStart) / duration) * width
-        const selX2 = ((timeline.selection.end - viewStart) / duration) * width
+        const selY1 = ((timeline.selection.start - viewStart) / duration) * height
+        const selY2 = ((timeline.selection.end - viewStart) / duration) * height
         ctx.save()
         ctx.globalAlpha = 0.3
         ctx.fillStyle = '#e94560'
-        ctx.fillRect(selX1, 0, selX2 - selX1, height)
+        ctx.fillRect(0, selY1, width, selY2 - selY1)
         ctx.restore()
     }
 
     // Draw playback indicator
     if (timeline.isPlaying && timeline.playbackPosition != null) {
-        const x = ((timeline.playbackPosition - viewStart) / duration) * width
-        if (x >= 0 && x <= width) {
+        const y = ((timeline.playbackPosition - viewStart) / duration) * height
+        if (y >= 0 && y <= height) {
             ctx.save()
             // Red playback line
             ctx.strokeStyle = '#ef4444'
             ctx.lineWidth = 2
             ctx.beginPath()
-            ctx.moveTo(x, 0)
-            ctx.lineTo(x, height)
+            ctx.moveTo(0, y)
+            ctx.lineTo(width, y)
             ctx.stroke()
-            // Playhead triangle at top
+            // Playhead triangle at the left edge
             ctx.beginPath()
-            ctx.moveTo(x - 6, 0)
-            ctx.lineTo(x + 6, 0)
-            ctx.lineTo(x, 8)
+            ctx.moveTo(0, y - 6)
+            ctx.lineTo(0, y + 6)
+            ctx.lineTo(8, y)
             ctx.closePath()
             ctx.fillStyle = '#ef4444'
             ctx.fill()
@@ -564,22 +605,22 @@ function drawTimeline() {
     updateSelectionUI()
 }
 
-function timeToX(time) {
-    const width = timelineContainer.clientWidth
-    return ((time - getViewStart()) / timeline.duration) * width
+function timeToY(time) {
+    const height = timelineContainer.clientHeight
+    return ((time - getViewStart()) / timeline.duration) * height
 }
 
-function xToTime(x) {
-    const width = timelineContainer.clientWidth
-    return getViewStart() + (x / width) * timeline.duration
+function yToTime(y) {
+    const height = timelineContainer.clientHeight
+    return getViewStart() + (y / height) * timeline.duration
 }
 
 function updateSelectionUI() {
     if (timeline.selection) {
-        const x1 = timeToX(timeline.selection.start)
-        const x2 = timeToX(timeline.selection.end)
-        timelineSelection.style.left = x1 + 'px'
-        timelineSelection.style.width = (x2 - x1) + 'px'
+        const y1 = timeToY(timeline.selection.start)
+        const y2 = timeToY(timeline.selection.end)
+        timelineSelection.style.top = y1 + 'px'
+        timelineSelection.style.height = (y2 - y1) + 'px'
         timelineSelection.classList.add('active')
 
         const start = new Date(timeline.selection.start)
@@ -658,39 +699,31 @@ function showResumeButton() {
 
 // Find session at a given pixel position on the timeline
 function getSessionAtPosition(x, y) {
-    if (!timeline.sessions || timeline.sessions.length === 0) return null
-
-    const width = timelineContainer.clientWidth
-    const height = timelineContainer.clientHeight
-    const viewStart = getViewStart()
-    const viewEnd = getViewEnd()
-
-    // Filter to visible sessions
-    const visibleSessions = timeline.sessions.filter(s =>
-        s.end_time >= viewStart && s.start_time <= viewEnd
+    const layout = getSessionLayout(
+        timelineContainer.clientWidth,
+        timelineContainer.clientHeight,
+        getViewStart(),
+        getViewEnd()
     )
+    if (!layout) return null
 
-    if (visibleSessions.length === 0) return null
-
-    // Sort by start time for overlap calculation (same as drawing)
-    const sorted = [...visibleSessions].sort((a, b) => a.start_time - b.start_time)
-    const rows = assignOverlapRows(sorted)
-    const maxRows = Math.max(...rows) + 1
-    const rowHeight = Math.min(24, height / (maxRows + 1))
-
-    // Check each session
-    for (let i = 0; i < sorted.length; i++) {
-        const session = sorted[i]
-        const x1 = Math.max(0, ((session.start_time - viewStart) / timeline.duration) * width)
-        const x2 = Math.min(width, ((session.end_time - viewStart) / timeline.duration) * width)
-        const row = rows[i]
-        const sessionY = row * rowHeight
-
-        if (x >= x1 && x <= x2 && y >= sessionY && y <= sessionY + rowHeight) {
-            return session
+    for (const band of layout.bands) {
+        if (x >= band.x && x <= band.x + band.laneWidth && y >= band.y1 && y <= band.y2) {
+            return band.session
         }
     }
 
+    return null
+}
+
+// True when the point is on a selected session's start/end resize handle
+function sessionHandleAt(x, y) {
+    const b = timeline.selectedSessionBounds
+    if (!b) return null
+    const grab = 8  // slightly larger hit area than visual
+    if (x < b.x || x > b.x + b.laneWidth) return null
+    if (y >= b.y1 - grab && y <= b.y1 + grab) return 'session-left'
+    if (y >= b.y2 - grab && y <= b.y2 + grab) return 'session-right'
     return null
 }
 
@@ -716,39 +749,27 @@ timelineContainer.addEventListener('mousedown', (e) => {
     const y = e.clientY - rect.top
 
     // Check if clicking on session handles
-    if (timeline.selectedSessionBounds) {
-        const b = timeline.selectedSessionBounds
-        const handleWidth = 8  // slightly larger hit area than visual
-
-        // Left handle
-        if (x >= b.x1 - handleWidth && x <= b.x1 + handleWidth && y >= b.y && y <= b.y + b.rowHeight) {
-            e.preventDefault()
-            dragState = { mode: 'session-left', sessionId: b.sessionId }
-            return
-        }
-
-        // Right handle
-        if (x >= b.x2 - handleWidth && x <= b.x2 + handleWidth && y >= b.y && y <= b.y + b.rowHeight) {
-            e.preventDefault()
-            dragState = { mode: 'session-right', sessionId: b.sessionId }
-            return
-        }
+    const handleMode = sessionHandleAt(x, y)
+    if (handleMode) {
+        e.preventDefault()
+        dragState = { mode: handleMode, sessionId: timeline.selectedSessionBounds.sessionId }
+        return
     }
 
-    const time = xToTime(x)
-    dragState = { mode: 'new', startTime: time, startX: x, dragging: false }
+    const time = yToTime(y)
+    dragState = { mode: 'new', startTime: time, startY: y, dragging: false }
 })
 
 document.addEventListener('mousemove', (e) => {
     if (!dragState) return
     const rect = timelineContainer.getBoundingClientRect()
-    const x = Math.max(0, Math.min(rect.width, e.clientX - rect.left))
-    const time = xToTime(x)
+    const y = Math.max(0, Math.min(rect.height, e.clientY - rect.top))
+    const time = yToTime(y)
 
     if (dragState.mode === 'new') {
         // Only start selection after dragging a few pixels
-        const dx = Math.abs(x - dragState.startX)
-        if (dx > 5) dragState.dragging = true
+        const dy = Math.abs(y - dragState.startY)
+        if (dy > 5) dragState.dragging = true
 
         if (dragState.dragging) {
             // Clear selected session when manually creating a new selection
@@ -860,21 +881,16 @@ timelineContainer.addEventListener('mousemove', (e) => {
         const rect = timelineContainer.getBoundingClientRect()
         const x = e.clientX - rect.left
         const y = e.clientY - rect.top
-        const b = timeline.selectedSessionBounds
-        const handleWidth = 8
 
-        const onLeftHandle = x >= b.x1 - handleWidth && x <= b.x1 + handleWidth && y >= b.y && y <= b.y + b.rowHeight
-        const onRightHandle = x >= b.x2 - handleWidth && x <= b.x2 + handleWidth && y >= b.y && y <= b.y + b.rowHeight
-
-        if (onLeftHandle || onRightHandle) {
-            timelineContainer.style.cursor = 'ew-resize'
+        if (sessionHandleAt(x, y)) {
+            timelineContainer.style.cursor = 'ns-resize'
             return
         }
     }
     timelineContainer.style.cursor = 'crosshair'
 })
 
-// Mouse wheel: vertical = zoom, horizontal = pan
+// Mouse wheel: scroll = pan through time, ctrl/shift+scroll = zoom
 timelineCanvas.addEventListener('wheel', async (e) => {
     e.preventDefault()
 
@@ -884,9 +900,12 @@ timelineCanvas.addEventListener('wheel', async (e) => {
         showResumeButton()
     }
 
-    // Horizontal scroll = pan
-    if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
-        const panAmount = (e.deltaX / 500) * timeline.duration
+    const zooming = e.ctrlKey || e.shiftKey || e.metaKey
+
+    // Plain scroll = pan (time runs down the screen)
+    if (!zooming) {
+        const delta = Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? e.deltaY : e.deltaX
+        const panAmount = (delta / 500) * timeline.duration
         timeline.startTime = Math.max(0, timeline.startTime + panAmount)
 
         await ensureTimelineDataCovers(getViewStart(), getViewEnd())
@@ -895,11 +914,11 @@ timelineCanvas.addEventListener('wheel', async (e) => {
         return
     }
 
-    // Vertical scroll = zoom (with reduced sensitivity)
     if (Math.abs(e.deltaY) < 5) return  // Ignore tiny movements
 
+    // Zoom around the time under the pointer
     const rect = timelineCanvas.getBoundingClientRect()
-    const ratio = e.offsetX / rect.width
+    const ratio = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height))
     const centerTime = timeline.startTime + timeline.duration * ratio
 
     // Gentler zoom factor (1.1 instead of 1.2)
@@ -933,13 +952,15 @@ document.addEventListener('keydown', async (e) => {
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return
 
     switch (e.key) {
+        case 'ArrowUp':
         case 'ArrowLeft':
             e.preventDefault()
-            await panTimeline(-1)
+            await panTimeline(-1)  // earlier (up)
             break
+        case 'ArrowDown':
         case 'ArrowRight':
             e.preventDefault()
-            await panTimeline(1)
+            await panTimeline(1)   // later (down)
             break
         case '+':
         case '=':
@@ -1113,6 +1134,8 @@ function connect() {
             const data = JSON.parse(e.data)
             if (data.type === 'midi') {
                 handleMidiEvent(data.event)
+            } else if (data.type === 'bank') {
+                applyBank(data.bank)
             } else if (data.type === 'playback') {
                 handlePlaybackStatus(data)
             } else if (data.type === 'playback-event') {
@@ -1124,11 +1147,24 @@ function connect() {
     }
 }
 
+// Other views (see history.js) can observe the live MIDI stream
+const liveEventHooks = []
+function onLiveEvent(fn) {
+    liveEventHooks.push(fn)
+}
+
 function handleMidiEvent(event) {
     if (isNoteOn(event)) activateNote(event.note, false)
     else if (isNoteOff(event)) deactivateNote(event.note, false)
     addLogEntry(event)
     addEventToTimeline(event)
+    for (const fn of liveEventHooks) {
+        try {
+            fn(event)
+        } catch (err) {
+            console.error('Live event hook failed:', err)
+        }
+    }
 }
 
 // Smooth playback animation
@@ -1875,9 +1911,161 @@ btnPanRight.addEventListener('click', () => panTimeline(1))
 btnResumeAuto.addEventListener('click', () => returnToLive())
 
 // ===========================================
+// Recording Bank
+// ===========================================
+const BANK_LETTERS = 'ABCDEFGHIJKL'.split('')
+const bankSelect = $('bankSelect')
+const bankHint = $('bankHint')
+
+// Current bank for incoming notes ('' = all/untagged)
+let currentBank = ''
+
+for (const letter of BANK_LETTERS) {
+    const option = document.createElement('option')
+    option.value = letter
+    option.textContent = `Bank ${letter}`
+    bankSelect.appendChild(option)
+}
+
+function applyBank(bank) {
+    currentBank = bank || ''
+    bankSelect.value = currentBank
+    bankHint.textContent = currentBank
+        ? `Incoming notes are tagged bank ${currentBank}.`
+        : 'Incoming notes are not tagged.'
+    // Let the history view know which bank new notes carry
+    if (typeof onBankChanged === 'function') onBankChanged(currentBank)
+}
+
+async function loadBank() {
+    try {
+        const res = await fetch('/api/bank')
+        const data = await res.json()
+        applyBank(data.bank)
+    } catch (err) {
+        console.error('Failed to load bank:', err)
+    }
+}
+
+bankSelect.addEventListener('change', async () => {
+    const bank = bankSelect.value
+    applyBank(bank)
+    try {
+        await fetch('/api/bank', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ bank: bank || null }),
+        })
+    } catch (err) {
+        console.error('Failed to set bank:', err)
+    }
+})
+
+// ===========================================
+// Floating Event Log Window
+// ===========================================
+const eventLogPanel = $('eventLogPanel')
+const eventLogHeader = $('eventLogHeader')
+const btnToggleEventLog = $('btnToggleEventLog')
+
+function saveEventLogState() {
+    const state = {
+        open: !eventLogPanel.classList.contains('hidden'),
+        left: eventLogPanel.style.left || null,
+        top: eventLogPanel.style.top || null,
+    }
+    localStorage.setItem('midibox-event-log', JSON.stringify(state))
+}
+
+function setEventLogOpen(open) {
+    eventLogPanel.classList.toggle('hidden', !open)
+    btnToggleEventLog.classList.toggle('active', open)
+    saveEventLogState()
+}
+
+function loadEventLogState() {
+    try {
+        const saved = JSON.parse(localStorage.getItem('midibox-event-log') || 'null')
+        if (!saved) return
+        if (saved.left && saved.top) {
+            eventLogPanel.style.left = saved.left
+            eventLogPanel.style.top = saved.top
+            eventLogPanel.style.right = 'auto'
+            eventLogPanel.style.bottom = 'auto'
+        }
+        eventLogPanel.classList.toggle('hidden', !saved.open)
+        btnToggleEventLog.classList.toggle('active', !!saved.open)
+    } catch (e) {
+        console.error('Failed to restore event log state:', e)
+    }
+}
+
+btnToggleEventLog.addEventListener('click', () => {
+    setEventLogOpen(eventLogPanel.classList.contains('hidden'))
+})
+
+$('eventLogClose').addEventListener('click', () => setEventLogOpen(false))
+
+// Drag the floating window by its header (mouse + touch)
+let logDrag = null
+
+function startLogDrag(clientX, clientY) {
+    const rect = eventLogPanel.getBoundingClientRect()
+    logDrag = { dx: clientX - rect.left, dy: clientY - rect.top }
+}
+
+function moveLogDrag(clientX, clientY) {
+    if (!logDrag) return
+    const width = eventLogPanel.offsetWidth
+    const height = eventLogPanel.offsetHeight
+    const left = Math.max(0, Math.min(window.innerWidth - width, clientX - logDrag.dx))
+    const top = Math.max(0, Math.min(window.innerHeight - height, clientY - logDrag.dy))
+    eventLogPanel.style.left = left + 'px'
+    eventLogPanel.style.top = top + 'px'
+    eventLogPanel.style.right = 'auto'
+    eventLogPanel.style.bottom = 'auto'
+}
+
+function endLogDrag() {
+    if (!logDrag) return
+    logDrag = null
+    saveEventLogState()
+}
+
+eventLogHeader.addEventListener('mousedown', (e) => {
+    if (e.target.closest('.floating-panel-close')) return
+    e.preventDefault()
+    startLogDrag(e.clientX, e.clientY)
+})
+
+document.addEventListener('mousemove', (e) => {
+    if (logDrag) moveLogDrag(e.clientX, e.clientY)
+})
+
+document.addEventListener('mouseup', endLogDrag)
+
+eventLogHeader.addEventListener('touchstart', (e) => {
+    if (e.target.closest('.floating-panel-close')) return
+    const touch = e.touches[0]
+    if (touch) startLogDrag(touch.clientX, touch.clientY)
+}, { passive: true })
+
+eventLogHeader.addEventListener('touchmove', (e) => {
+    const touch = e.touches[0]
+    if (logDrag && touch) {
+        e.preventDefault()
+        moveLogDrag(touch.clientX, touch.clientY)
+    }
+}, { passive: false })
+
+eventLogHeader.addEventListener('touchend', endLogDrag)
+
+// ===========================================
 // Initialize
 // ===========================================
 connect()
 loadSessions()
 loadOutputs()
 loadThruStatus()
+loadBank()
+loadEventLogState()

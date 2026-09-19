@@ -19,9 +19,14 @@ Perfect for musicians who want to capture spontaneous practice moments without r
 
 - **Continuous MIDI capture** from raw MIDI devices (`/dev/snd/midiC*D*`)
 - **SQLite storage** using Bun's built-in `bun:sqlite` for efficient event storage
-- **Web UI** (port 4000) with:
-  - Live 88-key piano visualization (A0-C8)
-  - Real-time event log showing notes, velocities, and control changes
+- **Web UI** (port 4000) with two tabs:
+  - **Live** - 88-key piano visualization (A0-C8) above a vertical timeline: time
+    scrolls downward while pitch runs across, lined up with the keys above
+  - **History** - recorded activity grouped by date, split into stretches of
+    playing, with sparklines, per-stretch playback, and save-as-session
+  - Lettered recording banks (A-L, or untagged) that tag incoming notes, with a
+    matching bank filter on the History tab
+  - Event log as a draggable floating window, toggled from the header
   - Session management (save/load named sessions with performer and song info)
   - MIDI output selection for playback
   - Click/touch-to-play keys (plays notes on the keyboard)
@@ -33,10 +38,7 @@ Perfect for musicians who want to capture spontaneous practice moments without r
 
 ### 🚧 Planned Features
 
-- **Automatic song detection** - Analyze gaps in playing to automatically identify when songs start and end
-- **Timeline visualization** - Visual waveform/piano roll view of recorded data showing note density over time
-- **Timeline scrubbing** - Navigate through hours of recorded data with a visual scrubber
-- **Manual session selection** - Draw on the timeline to select time spans for marking as sessions
+- **Automatic song detection** - Name and label the stretches the History tab already detects
 - **Smart segmentation** - AI-assisted suggestions for song boundaries based on tempo, key changes, and pauses
 - **Export options** - Export sessions as MIDI files or audio
 - **Quantization** - Snap recorded notes to a grid (1/4, 1/8, 1/16 notes, etc.) to clean up timing
@@ -72,6 +74,17 @@ bun run start
 4. Play your keyboard - notes appear on the virtual piano in real-time
 5. Use the session panel to save and label recordings
 
+### Banks and history
+
+Pick a bank (A-L) in the **Recording Bank** panel on the Live tab and every note
+captured from then on is tagged with that letter; leave it on *All (untagged)* to
+record without a tag. The **History** tab lists what was played by date, splits
+each day into stretches of continuous playing, and filters all of it by bank.
+
+The bank tag is an added, nullable column on `midi_events` and `sessions`: older
+databases are migrated in place on startup, rows recorded before banks existed
+read as untagged, and clients that don't send a bank keep working unchanged.
+
 ### Service Installation (Alpine Linux)
 
 ```bash
@@ -86,18 +99,22 @@ sudo rc-service midibox start
 
 ## API Endpoints
 
-| Method | Endpoint                        | Description                    |
-| ------ | ------------------------------- | ------------------------------ |
-| GET    | `/api/events/recent?minutes=5`  | Get recent MIDI events         |
-| GET    | `/api/events/range?start=&end=` | Get events in time range       |
-| GET    | `/api/sessions`                 | List all sessions              |
-| POST   | `/api/sessions`                 | Create a new session           |
-| GET    | `/api/midi/inputs`              | List MIDI input devices        |
-| GET    | `/api/midi/outputs`             | List MIDI output devices       |
-| POST   | `/api/playback/start`           | Start session playback         |
-| POST   | `/api/playback/stop`            | Stop playback                  |
-| POST   | `/api/playback/file`            | Upload and play MIDI file      |
-| WS     | `/ws`                           | WebSocket for real-time events |
+| Method | Endpoint                               | Description                                |
+| ------ | -------------------------------------- | ------------------------------------------ |
+| GET    | `/api/events/recent?minutes=5&bank=`   | Get recent MIDI events                     |
+| GET    | `/api/events/range?start=&end=&bank=`  | Get events in time range                   |
+| GET    | `/api/bank`                            | Current recording bank + available banks   |
+| POST   | `/api/bank`                            | Set the bank new notes are tagged with     |
+| GET    | `/api/history/days?tz=&bank=`          | Per-day activity totals, newest first      |
+| GET    | `/api/history/segments?start=&end=`    | Stretches of activity (plus sessions)      |
+| GET    | `/api/sessions`                        | List all sessions                          |
+| POST   | `/api/sessions`                        | Create a new session                       |
+| GET    | `/api/midi/inputs`                     | List MIDI input devices                    |
+| GET    | `/api/midi/outputs`                    | List MIDI output devices                   |
+| POST   | `/api/playback/start`                  | Start session playback                     |
+| POST   | `/api/playback/stop`                   | Stop playback                              |
+| POST   | `/api/playback/file`                   | Upload and play MIDI file                  |
+| WS     | `/ws`                                  | WebSocket for real-time events             |
 
 ## License
 

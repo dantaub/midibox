@@ -11,13 +11,20 @@
 <body>
     <header>
         <h1>MidiBox</h1>
-        <div class="status">
-            <div class="status-dot" id="statusDot"></div>
-            <span id="statusText">Connecting...</span>
+        <nav class="tabs" id="tabs">
+            <button class="tab active" data-view="live">Live</button>
+            <button class="tab" data-view="history">History</button>
+        </nav>
+        <div class="header-right">
+            <button class="btn-icon btn-log-toggle" id="btnToggleEventLog" title="Toggle event log window">&#x2630; Log</button>
+            <div class="status">
+                <div class="status-dot" id="statusDot"></div>
+                <span id="statusText">Connecting...</span>
+            </div>
         </div>
     </header>
 
-    <main>
+    <main class="view" id="viewLive">
         <div class="primary">
             <div class="card">
                 <h2>Live Piano</h2>
@@ -30,10 +37,10 @@
                 <div class="timeline-header">
                     <h2>Timeline</h2>
                     <div class="timeline-controls">
-                        <button id="timelinePanLeft" class="btn-icon" title="Pan Left (Arrow Left)">&#x2190;</button>
+                        <button id="timelinePanLeft" class="btn-icon" title="Earlier (Arrow Up)">&#x2191;</button>
                         <button id="timelineZoomIn" class="btn-icon" title="Zoom In (+)">+</button>
                         <button id="timelineZoomOut" class="btn-icon" title="Zoom Out (-)">-</button>
-                        <button id="timelinePanRight" class="btn-icon" title="Pan Right (Arrow Right)">&#x2192;</button>
+                        <button id="timelinePanRight" class="btn-icon" title="Later (Arrow Down)">&#x2193;</button>
                         <span class="timeline-separator">|</span>
                         <button id="timelinePlaySelection" class="btn-play" title="Play selection (Space)" disabled>&#x25B6;</button>
                         <button id="timelineStop" class="btn-stop-small" title="Stop (Esc)" disabled>&#x23F9;</button>
@@ -57,14 +64,22 @@
                     <span id="timelineEnd">--:--</span>
                 </div>
             </div>
-
-            <div class="card flex-grow">
-                <h2>Event Log</h2>
-                <div class="event-log" id="eventLog"></div>
-            </div>
         </div>
 
         <div class="sidebar">
+            <div class="card">
+                <h2>Recording Bank</h2>
+                <div class="controls">
+                    <div class="control-row">
+                        <label class="control-label" for="bankSelect">Bank:</label>
+                        <select id="bankSelect">
+                            <option value="">All (untagged)</option>
+                        </select>
+                    </div>
+                    <div class="bank-hint" id="bankHint">Incoming notes are not tagged.</div>
+                </div>
+            </div>
+
             <!-- Session Edit Panel (shown when editing) -->
             <div class="card edit-panel hidden" id="editPanel">
                 <h2>Edit Session</h2>
@@ -132,6 +147,71 @@
         </div>
     </main>
 
+    <!-- History tab: recorded activity by date -->
+    <section class="view history-view hidden" id="viewHistory">
+        <aside class="card history-days-card">
+            <div class="history-toolbar">
+                <select id="historyBankFilter" title="Filter by bank">
+                    <option value="all">All banks</option>
+                </select>
+                <select id="historyGap" title="Split activity when silence exceeds">
+                    <option value="30000">30s gaps</option>
+                    <option value="60000" selected>1m gaps</option>
+                    <option value="300000">5m gaps</option>
+                    <option value="900000">15m gaps</option>
+                </select>
+                <button class="btn-icon" id="historyRefresh" title="Refresh">&#x21BB;</button>
+            </div>
+            <div class="day-list" id="dayList">
+                <div class="history-empty">Loading&hellip;</div>
+            </div>
+        </aside>
+
+        <div class="history-main">
+            <div class="card history-segments-card">
+                <div class="history-header">
+                    <h2 id="historyDayTitle">Select a day</h2>
+                    <span class="live-pill hidden" id="historyLivePill">&#x25CF; LIVE</span>
+                    <span class="history-day-stats" id="historyDayStats"></span>
+                </div>
+                <div class="segment-list" id="segmentList">
+                    <div class="history-empty">Pick a date to see recorded activity.</div>
+                </div>
+            </div>
+
+            <div class="card history-preview-card">
+                <div class="history-header">
+                    <h2 id="historyPreviewTitle">Preview</h2>
+                    <div class="history-preview-actions">
+                        <button class="btn btn-primary" id="historyPlay" disabled>&#x25B6; Play</button>
+                        <button class="btn btn-stop" id="historyStop" disabled>&#x23F9; Stop</button>
+                        <button class="btn btn-secondary" id="historySave" disabled>&#x1F4BE; Save</button>
+                    </div>
+                </div>
+                <div class="history-save-form hidden" id="historySaveForm">
+                    <input type="text" id="historySaveSong" placeholder="Song name">
+                    <input type="text" id="historySavePerformer" placeholder="Performer">
+                    <select id="historySaveBank" title="Bank tag"></select>
+                    <button class="btn btn-primary" id="historySaveConfirm">Save session</button>
+                    <button class="btn btn-secondary" id="historySaveCancel">Cancel</button>
+                </div>
+                <div class="history-canvas-wrap" id="historyCanvasWrap">
+                    <canvas id="historyCanvas"></canvas>
+                </div>
+                <div class="history-preview-info" id="historyPreviewInfo">Select a stretch of activity to preview it.</div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Floating event log window (toggled from the header) -->
+    <div class="floating-panel hidden" id="eventLogPanel">
+        <div class="floating-panel-header" id="eventLogHeader">
+            <span class="floating-panel-title">Event Log</span>
+            <button class="floating-panel-close" id="eventLogClose" title="Close">&#x2715;</button>
+        </div>
+        <div class="event-log" id="eventLog"></div>
+    </div>
+
     <!-- Legacy form elements (hidden, for backwards compatibility) -->
     <form id="sessionForm" class="hidden">
         <input type="hidden" name="id" value="">
@@ -149,6 +229,7 @@
     </div>
 
     <script src="app.js"></script>
+    <script src="history.js"></script>
 </body>
 
 </html>
