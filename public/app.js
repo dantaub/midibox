@@ -26,6 +26,11 @@ const startNote = 21  // A0 (lowest on 88-key piano)
 const endNote = 108   // C8 (highest on 88-key piano)
 const keys = {}
 
+// Keys are sized in percentages so the keyboard always spans the full width,
+// matching the timeline's pitch axis below it (see noteToX)
+const whiteKeys = 52
+const keyUnit = 100 / whiteKeys
+
 let whiteKeyIndex = 0
 for (let note = startNote; note <= endNote; note++) {
     const noteInOctave = note % 12
@@ -36,7 +41,8 @@ for (let note = startNote; note <= endNote; note++) {
 
     if (isBlack) {
         key.className = 'black-key'
-        key.style.left = `${(whiteKeyIndex * 18) - 6}px`
+        key.style.left = `${(whiteKeyIndex - 0.34) * keyUnit}%`
+        key.style.width = `${0.68 * keyUnit}%`
     } else {
         key.className = 'white-key'
         whiteKeyIndex++

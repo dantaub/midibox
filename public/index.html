@@ -38,31 +38,11 @@
 
     <main class="view" id="viewLive">
         <div class="primary">
-            <div class="card">
-                <h2>Live Piano</h2>
+            <div class="card timeline-card">
                 <div class="piano-container">
                     <div class="piano" id="piano"></div>
                 </div>
-            </div>
 
-            <div class="card timeline-card">
-                <div class="timeline-header">
-                    <h2>Timeline</h2>
-                    <div class="timeline-controls">
-                        <button id="timelinePanLeft" class="btn-icon" title="Earlier (Arrow Up)">&#x2191;</button>
-                        <button id="timelineZoomIn" class="btn-icon" title="Zoom In (+)">+</button>
-                        <button id="timelineZoomOut" class="btn-icon" title="Zoom Out (-)">-</button>
-                        <button id="timelinePanRight" class="btn-icon" title="Later (Arrow Down)">&#x2193;</button>
-                        <span class="timeline-separator">|</span>
-                        <button id="timelinePlaySelection" class="btn-play" title="Play selection (Space)" disabled>&#x25B6;</button>
-                        <button id="timelineStop" class="btn-stop-small" title="Stop (Esc)" disabled>&#x23F9;</button>
-                        <button id="timelineSaveNew" class="btn-save" title="Save selection as session" disabled>&#x1F4BE;</button>
-                        <button id="timelineClear" class="btn-icon" title="Clear selection (Esc)" disabled>&#x2715;</button>
-                        <span class="timeline-separator">|</span>
-                        <button id="timelineResumeAuto" class="btn-resume hidden" title="Return to live (Home)">&#x25B6; Live</button>
-                        <button id="timelineRefresh" class="btn-icon" title="Refresh">&#x21BB;</button>
-                    </div>
-                </div>
                 <div class="timeline-container" id="timelineContainer">
                     <canvas class="timeline-canvas" id="timelineCanvas"></canvas>
                     <div class="timeline-selection" id="timelineSelection">
@@ -70,10 +50,26 @@
                         <div class="timeline-handle timeline-handle-right" id="handleRight"></div>
                     </div>
                 </div>
+
                 <div class="timeline-info">
                     <span id="timelineStart">--:--</span>
                     <span class="timeline-selection-info" id="timelineSelectionInfo"></span>
                     <span id="timelineEnd">--:--</span>
+                </div>
+
+                <div class="timeline-controls">
+                    <button id="timelinePanLeft" class="btn-icon" title="Earlier (Arrow Up)">&#x2191;</button>
+                    <button id="timelineZoomIn" class="btn-icon" title="Zoom In (+)">+</button>
+                    <button id="timelineZoomOut" class="btn-icon" title="Zoom Out (-)">-</button>
+                    <button id="timelinePanRight" class="btn-icon" title="Later (Arrow Down)">&#x2193;</button>
+                    <span class="timeline-separator">|</span>
+                    <button id="timelinePlaySelection" class="btn-play" title="Play selection (Space)" disabled>&#x25B6;</button>
+                    <button id="timelineStop" class="btn-stop-small" title="Stop (Esc)" disabled>&#x23F9;</button>
+                    <button id="timelineSaveNew" class="btn-save" title="Save selection as session" disabled>&#x1F4BE;</button>
+                    <button id="timelineClear" class="btn-icon" title="Clear selection (Esc)" disabled>&#x2715;</button>
+                    <span class="timeline-separator">|</span>
+                    <button id="timelineResumeAuto" class="btn-resume hidden" title="Return to live (Home)">&#x25B6; Live</button>
+                    <button id="timelineRefresh" class="btn-icon" title="Refresh">&#x21BB;</button>
                 </div>
             </div>
         </div>

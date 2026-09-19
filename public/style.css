@@ -208,19 +208,25 @@ main {
 
 /* Piano visualization */
 .piano-container {
-	overflow-x: auto;
-	padding: 0.5rem 0;
+	/* No scrolling: the keyboard spans the same width as the timeline below it,
+	   so a note's key and its bar line up exactly. */
+	overflow: hidden;
+	padding: 0.5rem 0 0;
+	flex-shrink: 0;
 }
 
 .piano {
 	display: flex;
 	position: relative;
 	height: 100px;
+	width: 100%;
 }
 
+/* 52 white keys share the width evenly; black keys are positioned in
+   percentages of the same span (see noteToX in app.js). */
 .white-key {
-	width: 18px;
-	min-width: 18px;
+	flex: 1 1 0;
+	min-width: 0;
 	height: 100%;
 	background: linear-gradient(to bottom, #fff 0%, #e8e8e8 100%);
 	border: 1px solid #999;
@@ -236,8 +242,7 @@ main {
 
 .black-key {
 	position: absolute;
-	width: 12px;
-	height: 60px;
+	height: 60%;
 	background: linear-gradient(to bottom, #333 0%, #000 100%);
 	border-radius: 0 0 2px 2px;
 	z-index: 1;
@@ -485,30 +490,22 @@ select {
 /* Timeline / Piano Roll */
 .timeline-card {
 	flex: 1;
-	min-height: 200px;
+	min-height: 260px;
 	display: flex;
 	flex-direction: column;
 }
 
-.timeline-header {
-	display: flex;
-	justify-content: space-between;
-	align-items: center;
-	margin-bottom: 0.5rem;
-}
-
-.timeline-header h2 {
-	margin-bottom: 0;
-}
-
 .timeline-controls {
 	display: flex;
-	gap: 0.5rem;
 	align-items: center;
+	justify-content: center;
+	gap: 0.25rem;
+	flex-wrap: wrap;
+	margin-top: 0.5rem;
 }
 
 .timeline-controls button {
-	padding: 0.25rem 0.5rem;
+	padding: 0.3rem 0.6rem;
 	font-size: 0.75rem;
 	border: none;
 	border-radius: 3px;
@@ -533,6 +530,7 @@ select {
 
 .timeline-container {
 	flex: 1;
+	min-height: 0;
 	position: relative;
 	background: #0d1117;
 	border-radius: 4px;
@@ -1226,8 +1224,13 @@ select {
 		display: none;
 	}
 
-	/* The timeline is the main view now - give it room to breathe */
+	/* The timeline panel is the main view now - give it room to breathe */
 	.timeline-card {
-		min-height: 40vh;
+		min-height: 55vh;
+	}
+
+	/* Keys are narrow at this width; a shorter keyboard leaves more timeline */
+	.piano {
+		height: 70px;
 	}
 }
