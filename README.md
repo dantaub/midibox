@@ -1,144 +1,56 @@
 # 🎹 MidiBox
 
-An always-on MIDI recording service that captures every note played on your keyboard, letting you save, label, and play back your practice sessions.
+An always-on MIDI recording service that captures every note played on your
+keyboard, so you can find, label and play back the things you didn't think to
+record.
 
-## Overview
-
-MidiBox runs as a background service on a small computer (like an Alpine Linux box) connected to your MIDI keyboard. It continuously records all MIDI events to a local SQLite database, providing:
-
-- **Real-time visualization** of notes as they're played on a virtual piano
-- **Session labeling** via a mobile-friendly web interface
-- **Playback** of recorded sessions back to the keyboard
-- **MIDI file import** to play standard `.mid` files on your keyboard
-
-Perfect for musicians who want to capture spontaneous practice moments without remembering to hit "record."
-
-## Current Features
-
-### ✅ Implemented
-
-- **Continuous MIDI capture** from raw MIDI devices (`/dev/snd/midiC*D*`)
-- **SQLite storage** using Bun's built-in `bun:sqlite` for efficient event storage
-- **Web UI** (port 4000) with two tabs:
-  - **Live** - 88-key piano visualization (A0-C8) above a vertical timeline: time
-    scrolls downward (or upward - the direction flips from the timeline controls)
-    while pitch runs across, lined up with the keys above
-  - A **Live** toggle under the timeline follows the present, stepping the view
-    forward at a note length (1/1 down to 1/16, dotted and triplet) against a
-    40-220 BPM slider, or continuously at 60 Hz; switching it off freezes the
-    view and swaps those controls for pan, zoom and the selection tools
-  - **History** - recorded activity grouped by date, split into stretches of
-    playing, with sparklines, per-stretch playback, and save-as-session
-  - Event log as a draggable floating window, toggled from the header
-  - Session management (save/load named sessions with performer and song info)
-  - MIDI output selection for playback
-  - Click/touch-to-play keys (plays notes on the keyboard)
-  - MIDI file upload and playback
-  - Playback progress bar with green key highlighting
-- **TUI client** for HDMI-connected displays (connects via WebSocket)
-- **Service scripts** for systemd and OpenRC (Alpine) deployment
-- **WebSocket streaming** for real-time updates to all connected clients
-
-### 🚧 Planned Features
-
-- **Automatic song detection** - Name and label the stretches the History tab already detects
-- **Smart segmentation** - AI-assisted suggestions for song boundaries based on tempo, key changes, and pauses
-- **Export options** - Export sessions as MIDI files or audio
-- **Quantization** - Snap recorded notes to a grid (1/4, 1/8, 1/16 notes, etc.) to clean up timing
-- **Sheet music PDF generation** - Quantize recordings and generate printable PDF sheet music with proper notation
-
-## Tech Stack
-
-- **Runtime:** [Bun](https://bun.sh)
-- **Database:** SQLite via `bun:sqlite`
-- **MIDI:** Raw device access (`/dev/snd/midi*`)
-- **Frontend:** Vanilla HTML/CSS/JS with WebSocket
-- **Target OS:** Alpine Linux with OpenRC
-
-## Installation
+MidiBox runs as a background service on a small computer connected to your MIDI
+keyboard — an Alpine box, a Pi, a spare laptop. It records continuously to a
+local SQLite file and serves a web UI for browsing what it caught.
 
 ```bash
-# Clone the repository
 git clone https://github.com/creationix/midibox.git
-cd midibox
-
-# Install dependencies
-bun install
-
-# Start the server
-bun run start
+cd midibox && bun install && bun run start
 ```
 
-## Usage
+Then open <http://localhost:4000> and play.
 
-1. Connect your MIDI keyboard
-2. Start the MidiBox server: `bun run start`
-3. Open `http://localhost:4000` in a browser
-4. Play your keyboard - notes appear on the virtual piano in real-time
-5. Use the session panel to save and label recordings
+## Documentation
 
-### History
+- **[INSTALL.md](INSTALL.md)** — requirements, running it as a service
+  (systemd, user units, OpenRC), ports, directories, backups, troubleshooting
+- **[USAGE.md](USAGE.md)** — the web UI, timeline, sessions, history, shortcuts
+- **[API.md](API.md)** — HTTP endpoints and the WebSocket protocol
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** — how the pieces fit, for anyone
+  changing the code
 
-The **History** tab lists what was played by date and splits each day into
-stretches of continuous playing, which can be previewed, played back to the
-keyboard, or saved as a session.
+## What it does
 
-### Service Installation
+- **Records continuously** from a raw ALSA device (Linux) or CoreMIDI (macOS)
+  to SQLite — no record button to forget
+- **Live view** — an 88-key keyboard above a vertical timeline that shares its
+  pitch axis, following the present at a note length and tempo of your choosing
+  (or 60 Hz), and freezing for pan, zoom and selection
+- **History** — everything by date, split into stretches of continuous playing
+  with sparklines, previews and one-click labelling
+- **Sessions** — name a span as a song and performer; edit its bounds later by
+  dragging on the timeline
+- **Playback** to the keyboard, with the notes lit up as they play
+- **MIDI thru**, click-to-play keys, and standard `.mid` file playback
+- **TUI client** for a screen attached to the box itself
 
-```bash
-./scripts/install-service.sh
-```
+## Planned
 
-The installer detects the init system, fills in your install directory, user and
-`bun` path, adds the user to the `audio` group, and enables the service.
+- **Automatic song detection** — name and label the stretches history already finds
+- **Smart segmentation** — suggestions for song boundaries from tempo, key and pauses
+- **Export** sessions as MIDI or audio
+- **Quantization** — snap recorded notes to a grid
+- **Sheet music PDFs** from quantized recordings
 
-**systemd** (most distros) installs `/etc/systemd/system/midibox.service`:
+## Tech
 
-```bash
-sudo systemctl restart midibox
-systemctl status midibox
-journalctl -u midibox -f        # logs
-```
-
-Settings live in `/etc/default/midibox` (e.g. `MIDIBOX_PORT=4000`).
-
-If you previously copied `scripts/midibox.initd` into `/etc/init.d/` on a systemd
-host, remove it — systemd wraps leftover SysV scripts with its deprecated
-compatibility generator, which is what logs *"lacks a native systemd unit file"*
-at boot and shadows the real unit:
-
-```bash
-sudo rm /etc/init.d/midibox
-sudo systemctl daemon-reload
-```
-
-**OpenRC** (Alpine) installs `/etc/init.d/midibox` with settings in
-`/etc/conf.d/midibox`:
-
-```bash
-sudo rc-service midibox start
-sudo rc-service midibox status  # logs: /var/log/midibox.log
-```
-
-## API Endpoints
-
-| Method | Endpoint                               | Description                                |
-| ------ | -------------------------------------- | ------------------------------------------ |
-| GET    | `/api/events/recent?minutes=5`         | Get recent MIDI events                     |
-| GET    | `/api/events/range?start=&end=`        | Get events in time range                   |
-| GET    | `/api/history/days?tz=`                | Per-day activity totals, newest first      |
-| GET    | `/api/history/segments?start=&end=`    | Stretches of activity (plus sessions)      |
-| GET    | `/api/sessions`                        | List all sessions                          |
-| POST   | `/api/sessions`                        | Create a new session                       |
-| GET    | `/api/midi/inputs`                     | List MIDI input devices                    |
-| GET    | `/api/midi/outputs`                    | List MIDI output devices                   |
-| GET    | `/api/midi/output`                     | Currently connected output                 |
-| POST   | `/api/midi/output`                     | Connect an output (without playing)        |
-| DELETE | `/api/midi/output`                     | Disconnect the output                      |
-| POST   | `/api/playback/start`                  | Start session playback                     |
-| POST   | `/api/playback/stop`                   | Stop playback                              |
-| POST   | `/api/playback/file`                   | Upload and play MIDI file                  |
-| WS     | `/ws`                                  | WebSocket for real-time events             |
+Bun, `bun:sqlite`, raw `/dev/snd` access, and vanilla HTML/CSS/JS over a
+WebSocket. No build step.
 
 ## License
 
