@@ -201,8 +201,9 @@ const ctx = timelineCanvas.getContext('2d')
 
 // Unified timeline state
 const timeline = {
-    // View configuration
-    duration: 30 * 60 * 1000,  // time span in ms (default 30 minutes)
+    // View configuration - separate durations for live vs detached modes
+    liveDuration: 1 * 60 * 1000,  // time span in ms for live mode (default 1 minute)
+    detachedDuration: 30 * 60 * 1000,  // time span in ms for detached/frozen mode (default 30 minutes)
     startTime: null,           // if null = live mode (end is now), if set = detached
 
     // Playback mode (separate from live/detached)
@@ -240,9 +241,13 @@ const timeline = {
 }
 
 // Helper functions for view bounds
+function getDuration() {
+    return timeline.startTime === null ? timeline.liveDuration : timeline.detachedDuration
+}
+
 function getViewStart() {
     if (timeline.startTime === null) {
-        return Date.now() - timeline.duration
+        return Date.now() - timeline.liveDuration
     }
     return timeline.startTime
 }
@@ -251,11 +256,18 @@ function getViewEnd() {
     if (timeline.startTime === null) {
         return Date.now()
     }
-    return timeline.startTime + timeline.duration
+    return timeline.startTime + timeline.detachedDuration
 }
 
 function isLive() {
     return timeline.startTime === null
+}
+
+// Freeze the live view into detached mode, pinning "now" at the bottom edge so
+// the last detachedDuration of real data stays in view (no empty future). A
+// no-op when already detached.
+function freezeView() {
+    if (isLive()) timeline.startTime = getViewEnd() - timeline.detachedDuration
 }
 
 const minNote = 21
@@ -319,7 +331,8 @@ let lastSavedView = null
 
 function saveTimelineView() {
     const state = JSON.stringify({
-        duration: timeline.duration,
+        liveDuration: timeline.liveDuration,
+        detachedDuration: timeline.detachedDuration,
         startTime: timeline.startTime
     })
 
@@ -338,8 +351,17 @@ function loadSavedTimelineView() {
         if (raw) {
             const state = JSON.parse(raw)
 
-            // Validate new format - duration must be a positive number
-            if (typeof state.duration !== 'number' || state.duration <= 0) {
+            // Handle backward compatibility: old format had a single 'duration' field
+            if (state.duration !== undefined && state.liveDuration === undefined) {
+                console.log('[Timeline] Migrating old format with single duration')
+                state.detachedDuration = state.duration
+                state.liveDuration = 1 * 60 * 1000  // default to 1 minute for live
+                delete state.duration
+            }
+
+            // Validate format
+            if (typeof state.liveDuration !== 'number' || state.liveDuration <= 0 ||
+                typeof state.detachedDuration !== 'number' || state.detachedDuration <= 0) {
                 console.log('[Timeline] Invalid/old localStorage format, clearing')
                 localStorage.removeItem('midibox-timeline-view')
                 return null
@@ -349,7 +371,7 @@ function loadSavedTimelineView() {
             if (state.startTime !== null) {
                 const now = Date.now()
                 const maxAge = 30 * 24 * 60 * 60 * 1000
-                const viewEnd = state.startTime + state.duration
+                const viewEnd = state.startTime + state.detachedDuration
                 if (now - viewEnd > maxAge) {
                     console.log('[Timeline] Saved view too old, ignoring')
                     return null  // Too old, go to live mode
@@ -382,13 +404,14 @@ async function loadTimelineData() {
 
     if (saved) {
         console.log('[Timeline] Applying saved state:', JSON.stringify(saved))
-        timeline.duration = saved.duration
+        timeline.liveDuration = saved.liveDuration
+        timeline.detachedDuration = saved.detachedDuration
         timeline.startTime = saved.startTime
     } else {
         console.log('[Timeline] No saved state, using defaults (live mode)')
     }
 
-    console.log('[Timeline] After load - duration:', timeline.duration, 'startTime:', timeline.startTime, 'isLive:', isLive())
+    console.log('[Timeline] After load - liveDuration:', timeline.liveDuration, 'detachedDuration:', timeline.detachedDuration, 'startTime:', timeline.startTime, 'isLive:', isLive())
 
     updateLiveButton()
 
@@ -400,6 +423,7 @@ async function loadTimelineData() {
 // Force return to live mode (used by Resume button and Home key)
 async function returnToLive() {
     timeline.startTime = null
+    // Note: liveDuration is already in timeline, no need to restore from saved state
     updateLiveButton()
 
     await fetchTimelineEvents(getViewStart(), getViewEnd())
@@ -540,7 +564,7 @@ function drawTimeline() {
     const height = timelineContainer.clientHeight
     const viewStart = getViewStart()
     const viewEnd = getViewEnd()
-    const duration = timeline.duration
+    const duration = getDuration()
     ctx.clearRect(0, 0, width, height)
 
     // Pitch runs left to right, matching the piano above; time runs down the
@@ -651,14 +675,14 @@ function drawTimeline() {
 
 function timeToY(time) {
     const height = timelineContainer.clientHeight
-    const ratio = (time - getViewStart()) / timeline.duration
+    const ratio = (time - getViewStart()) / getDuration()
     return timeline.flipped ? height - ratio * height : ratio * height
 }
 
 function yToTime(y) {
     const height = timelineContainer.clientHeight
     const ratio = timeline.flipped ? (height - y) / height : y / height
-    return getViewStart() + ratio * timeline.duration
+    return getViewStart() + ratio * getDuration()
 }
 
 // Sign of "later" on screen: +1 when time runs downward, -1 when flipped.
@@ -903,7 +927,7 @@ document.addEventListener('mouseup', (e) => {
 
     // If we dragged, switch to detached mode
     if (dragState.dragging) {
-        if (isLive()) timeline.startTime = getViewStart()  // Freeze current view
+        freezeView()  // pin "now" at the bottom edge (no-op if already detached)
         updateLiveButton()  // reconcile the controls either way
     }
 
@@ -976,7 +1000,7 @@ timelineCanvas.addEventListener('wheel', async (e) => {
 
     // Enter detached mode if currently live
     if (isLive()) {
-        timeline.startTime = getViewStart()
+        freezeView()
         updateLiveButton()
     }
 
@@ -985,7 +1009,7 @@ timelineCanvas.addEventListener('wheel', async (e) => {
     // Plain scroll = pan (time runs down the screen)
     if (!zooming) {
         const delta = Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? e.deltaY : e.deltaX
-        const panAmount = (delta / 500) * timeline.duration * timeDirection()
+        const panAmount = (delta / 500) * timeline.detachedDuration * timeDirection()
         timeline.startTime = Math.max(0, timeline.startTime + panAmount)
 
         await ensureTimelineDataCovers(getViewStart(), getViewEnd())
@@ -1000,11 +1024,11 @@ timelineCanvas.addEventListener('wheel', async (e) => {
     const rect = timelineCanvas.getBoundingClientRect()
     let ratio = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height))
     if (timeline.flipped) ratio = 1 - ratio
-    const centerTime = timeline.startTime + timeline.duration * ratio
+    const centerTime = timeline.startTime + timeline.detachedDuration * ratio
 
     // Gentler zoom factor (1.1 instead of 1.2)
     const zoomFactor = e.deltaY > 0 ? 1.1 : 0.9
-    const newDuration = Math.max(5000, timeline.duration * zoomFactor)  // Min 5 seconds
+    const newDuration = Math.max(5000, timeline.detachedDuration * zoomFactor)  // Min 5 seconds
 
     let newStart = centerTime - newDuration * ratio
 
@@ -1020,7 +1044,7 @@ timelineCanvas.addEventListener('wheel', async (e) => {
     }
 
     timeline.startTime = Math.max(0, newStart)
-    timeline.duration = newDuration
+    timeline.detachedDuration = newDuration
 
     await ensureTimelineDataCovers(getViewStart(), getViewEnd())
     updateTimeLabels()
@@ -1114,7 +1138,7 @@ $('timelinePlaySelection').addEventListener('click', async () => {
     const selDuration = playEnd - playStart
     const padding = selDuration * 0.1
     timeline.startTime = playStart - padding
-    timeline.duration = selDuration + padding * 2
+    timeline.detachedDuration = selDuration + padding * 2
 
     await ensureTimelineDataCovers(getViewStart(), getViewEnd())
     updateTimeLabels()
@@ -1167,7 +1191,7 @@ function addEventToTimeline(event) {
     // Nothing refetches the window while live, so drop events that have
     // scrolled well past the top of the view to bound memory. The margin
     // leaves room to zoom out a little without a round trip.
-    const keepFrom = getViewStart() - timeline.duration * 2
+    const keepFrom = getViewStart() - timeline.liveDuration * 2
     if (timeline.events.length > 2000 && timeline.events[0].timestamp < keepFrom) {
         timeline.events = timeline.events.filter(e => e.timestamp >= keepFrom)
     }
@@ -1854,14 +1878,16 @@ async function selectSession(sessionId, startTime, endTime) {
         return
     }
 
-    // Need to scroll - switch to detached mode
-    if (sessionDuration <= timeline.duration) {
+    // Need to scroll - switch to detached mode if in live
+    freezeView()
+
+    if (sessionDuration <= timeline.detachedDuration) {
         // Session fits in current zoom - center it
         const center = (startTime + endTime) / 2
-        timeline.startTime = center - timeline.duration / 2
+        timeline.startTime = center - timeline.detachedDuration / 2
     } else {
         // Session too large for current zoom - show start near left edge
-        const padding = timeline.duration * 0.1
+        const padding = timeline.detachedDuration * 0.1
         timeline.startTime = startTime - padding
     }
 
@@ -2136,19 +2162,17 @@ const btnFlip = $('timelineFlip')
 // Zoom to selection or zoom in on center
 btnZoomIn.addEventListener('click', async () => {
     // Enter detached mode if live
-    if (isLive()) {
-        timeline.startTime = getViewStart()
-    }
+    freezeView()
 
     if (timeline.selection) {
         // Zoom to fit selection
         timeline.startTime = timeline.selection.start
-        timeline.duration = timeline.selection.end - timeline.selection.start
+        timeline.detachedDuration = timeline.selection.end - timeline.selection.start
     } else {
         // Zoom in on center (halve the duration)
-        const center = timeline.startTime + timeline.duration / 2
-        timeline.duration = timeline.duration / 2
-        timeline.startTime = center - timeline.duration / 2
+        const center = timeline.startTime + timeline.detachedDuration / 2
+        timeline.detachedDuration = timeline.detachedDuration / 2
+        timeline.startTime = center - timeline.detachedDuration / 2
     }
 
     await ensureTimelineDataCovers(getViewStart(), getViewEnd())
@@ -2160,18 +2184,16 @@ btnZoomIn.addEventListener('click', async () => {
 // Zoom out, keeping selection in view if present
 btnZoomOut.addEventListener('click', async () => {
     // Enter detached mode if live
-    if (isLive()) {
-        timeline.startTime = getViewStart()
-    }
+    freezeView()
 
     let center
     if (timeline.selection) {
         center = (timeline.selection.start + timeline.selection.end) / 2
     } else {
-        center = timeline.startTime + timeline.duration / 2
+        center = timeline.startTime + timeline.detachedDuration / 2
     }
-    timeline.duration = Math.max(1000, timeline.duration * 2)
-    timeline.startTime = Math.max(0, center - timeline.duration / 2)
+    timeline.detachedDuration = Math.max(1000, timeline.detachedDuration * 2)
+    timeline.startTime = Math.max(0, center - timeline.detachedDuration / 2)
 
     await ensureTimelineDataCovers(getViewStart(), getViewEnd())
     updateTimeLabels()
@@ -2181,11 +2203,9 @@ btnZoomOut.addEventListener('click', async () => {
 
 async function panTimeline(direction) {
     // Enter detached mode if live
-    if (isLive()) {
-        timeline.startTime = getViewStart()
-    }
+    freezeView()
 
-    const shift = Math.round(timeline.duration / 4) * direction
+    const shift = Math.round(timeline.detachedDuration / 4) * direction
     timeline.startTime = Math.max(0, timeline.startTime + shift)
 
     await ensureTimelineDataCovers(getViewStart(), getViewEnd())
@@ -2200,7 +2220,7 @@ btnPanRight.addEventListener('click', () => panTimeline(1))
 // Live is a toggle: on = follow "now" continuously, off = freeze the window
 btnLiveToggle.addEventListener('click', () => {
     if (isLive()) {
-        timeline.startTime = getViewStart()  // freeze where we are
+        freezeView()  // freeze, pinning "now" at the bottom edge
         updateTimeLabels()
         updateLiveButton()
         drawTimeline()
