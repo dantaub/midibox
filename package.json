@@ -13,6 +13,7 @@
     "start": "bun run index.ts",
     "dev": "bun --watch run index.ts",
     "tui": "bun run src/tui.ts",
+    "midi:timing": "bun run scripts/midi-timing.ts",
     "test": "bun test test/db.test.ts test/api.test.ts test/transports.test.ts",
     "test:ui": "bun test test/ui.test.ts",
     "test:all": "bun test"

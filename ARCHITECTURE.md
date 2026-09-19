@@ -154,3 +154,11 @@ than fail, so `bun run test:all` works on a machine with no browser.
   because the redraw path touches it and 60 Hz would mean 60 writes a second.
 - **The database grows forever.** Roughly 50 MB per million events (measured at
   47 bytes each); there is no pruning yet.
+- **A "chord" is never simultaneous.** MIDI is serial — each 3-byte note-on
+  takes ~1 ms on a DIN link, so chord notes arrive a millisecond or so apart by
+  protocol, before any software. On top of that, capture timestamps with
+  `Date.now()` (1 ms granularity), so near-simultaneous notes can land on
+  different milliseconds. `bun run midi:timing` (`scripts/midi-timing.ts`)
+  measures the split: RtMidi's `deltaTime` is the protocol/driver floor, a
+  high-res clock in the callback shows software-added latency, and the
+  `Date.now()` delta shows the recording granularity.
