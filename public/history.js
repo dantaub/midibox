@@ -40,7 +40,6 @@ const hist = {
     date: null,          // 'YYYY-MM-DD' of the selected day
     segments: [],
     sessions: [],
-    bank: 'all',         // 'all' | 'none' | 'A'..'L'
     gap: 60 * 1000,      // silence that splits two stretches of activity
     selection: null,     // { start, end, label } currently previewed
     followLive: false,   // preview is tracking the in-progress stretch
@@ -50,29 +49,11 @@ const hist = {
 
 const dayList = $('dayList')
 const segmentList = $('segmentList')
-const historyBankFilter = $('historyBankFilter')
 const historyGap = $('historyGap')
 const historyCanvas = $('historyCanvas')
 const historyCanvasWrap = $('historyCanvasWrap')
 const historyCtx = historyCanvas.getContext('2d')
 const historyLivePill = $('historyLivePill')
-
-// Bank filter options: all / untagged / A-L
-for (const letter of BANK_LETTERS) {
-    const option = document.createElement('option')
-    option.value = letter
-    option.textContent = `Bank ${letter}`
-    historyBankFilter.appendChild(option)
-}
-const untaggedOption = document.createElement('option')
-untaggedOption.value = 'none'
-untaggedOption.textContent = 'Untagged'
-historyBankFilter.appendChild(untaggedOption)
-
-// Bank selector on the save-as-session form
-const historySaveBank = $('historySaveBank')
-historySaveBank.innerHTML = '<option value="">No bank</option>' +
-    BANK_LETTERS.map(l => `<option value="${l}">Bank ${l}</option>`).join('')
 
 // ===========================================
 // Formatting helpers
@@ -120,31 +101,13 @@ function escapeHtml(text) {
     ))
 }
 
-function bankChips(banks) {
-    // banks: { 'A': 12, '-': 3 } - '-' means untagged
-    return Object.keys(banks || {})
-        .sort()
-        .map(b => `<span class="bank-chip ${b === '-' ? 'untagged' : ''}">${b === '-' ? '&mdash;' : escapeHtml(b)}</span>`)
-        .join('')
-}
-
-function bankParam() {
-    return hist.bank && hist.bank !== 'all' ? `&bank=${encodeURIComponent(hist.bank)}` : ''
-}
-
-function eventMatchesFilter(event) {
-    if (hist.bank === 'all') return true
-    if (hist.bank === 'none') return !event.bank
-    return event.bank === hist.bank
-}
-
 // ===========================================
 // Day list
 // ===========================================
 async function loadHistoryDays() {
     try {
         const tz = new Date().getTimezoneOffset()
-        const res = await fetch(`/api/history/days?tz=${tz}${bankParam()}`)
+        const res = await fetch(`/api/history/days?tz=${tz}`)
         hist.days = await res.json()
     } catch (err) {
         console.error('Failed to load history days:', err)
@@ -169,7 +132,7 @@ async function loadHistoryDays() {
 
 function renderDays() {
     if (hist.days.length === 0) {
-        dayList.innerHTML = '<div class="history-empty">Nothing recorded for this bank.</div>'
+        dayList.innerHTML = '<div class="history-empty">Nothing recorded yet.</div>'
         return
     }
 
@@ -177,9 +140,6 @@ function renderDays() {
 
     dayList.innerHTML = hist.days.map(day => {
         const width = Math.max(2, Math.round(((day.note_count || 0) / maxNotes) * 100))
-        const banks = day.banks && day.banks.length
-            ? day.banks.map(b => `<span class="bank-chip">${escapeHtml(b)}</span>`).join('')
-            : ''
         return `
             <div class="day-item ${day.date === hist.date ? 'selected' : ''}" data-date="${day.date}">
                 <div class="day-item-top">
@@ -190,7 +150,6 @@ function renderDays() {
                 <div class="day-item-meta">
                     <span>${fmtClock(day.first_event)} &ndash; ${fmtClock(day.last_event)}</span>
                     ${day.session_count ? `<span class="day-sessions">${day.session_count} session${day.session_count === 1 ? '' : 's'}</span>` : ''}
-                    ${banks}
                 </div>
             </div>
         `
@@ -222,7 +181,7 @@ async function loadHistorySegments() {
     if (!hist.date) return
     const { start, end } = dayBounds(hist.date)
     try {
-        const res = await fetch(`/api/history/segments?start=${start}&end=${end}&gap=${hist.gap}${bankParam()}`)
+        const res = await fetch(`/api/history/segments?start=${start}&end=${end}&gap=${hist.gap}`)
         const data = await res.json()
         hist.segments = data.segments || []
         hist.sessions = data.sessions || []
@@ -251,7 +210,7 @@ function renderSegments() {
         : ''
 
     if (hist.segments.length === 0) {
-        segmentList.innerHTML = '<div class="history-empty">No activity on this day for the selected bank.</div>'
+        segmentList.innerHTML = '<div class="history-empty">No activity on this day.</div>'
         return
     }
 
@@ -284,7 +243,6 @@ function renderSegments() {
                         <span>${segment.note_count.toLocaleString()} note${segment.note_count === 1 ? '' : 's'}</span>
                         ${range ? `<span>${range}</span>` : ''}
                         <span>vel ${segment.avg_velocity}</span>
-                        ${bankChips(segment.banks)}
                         ${sessionTags}
                     </div>
                 </div>
@@ -323,7 +281,7 @@ async function selectSegment(start, end) {
     $('historyPreviewInfo').textContent = `${fmtDuration(end - start)} · loading…`
 
     try {
-        const res = await fetch(`/api/events/range?start=${start}&end=${end}${bankParam()}`)
+        const res = await fetch(`/api/events/range?start=${start}&end=${end}`)
         hist.previewEvents = await res.json()
     } catch (err) {
         console.error('Failed to load preview events:', err)
@@ -441,8 +399,6 @@ async function playHistorySelection() {
         end: hist.selection.end,
         output: outputSelect.value || undefined,
     }
-    if (hist.bank !== 'all') body.bank = hist.bank
-
     try {
         $('historyStop').disabled = false
         $('historyPlay').disabled = true
@@ -485,7 +441,6 @@ setInterval(() => {
 $('historySave').addEventListener('click', () => {
     if (!hist.selection) return
     $('historySaveForm').classList.remove('hidden')
-    $('historySaveBank').value = hist.bank !== 'all' && hist.bank !== 'none' ? hist.bank : ''
     $('historySaveSong').focus()
 })
 
@@ -500,7 +455,6 @@ $('historySaveConfirm').addEventListener('click', async () => {
         end_time: hist.selection.end,
         song_name: $('historySaveSong').value || null,
         performer: $('historySavePerformer').value || null,
-        bank: $('historySaveBank').value || null,
     }
 
     try {
@@ -527,16 +481,6 @@ $('historySaveConfirm').addEventListener('click', async () => {
 // ===========================================
 // Filters
 // ===========================================
-historyBankFilter.addEventListener('change', async () => {
-    hist.bank = historyBankFilter.value
-    localStorage.setItem('midibox-history-bank', hist.bank)
-    hist.selection = null
-    hist.previewEvents = []
-    updatePreviewButtons()
-    await loadHistoryDays()
-    drawHistoryPreview()
-})
-
 historyGap.addEventListener('change', async () => {
     hist.gap = parseInt(historyGap.value, 10)
     localStorage.setItem('midibox-history-gap', String(hist.gap))
@@ -563,14 +507,13 @@ function onLiveHistoryEvent(event) {
 
     // Keep the day list's counters live even when another day is open
     const todayEntry = hist.days.find(d => d.date === today)
-    if (todayEntry && eventMatchesFilter(event)) {
+    if (todayEntry) {
         todayEntry.event_count++
         if (isNoteOn(event)) todayEntry.note_count++
         todayEntry.last_event = event.timestamp
-        if (event.bank && !todayEntry.banks.includes(event.bank)) todayEntry.banks.push(event.bank)
     }
 
-    if (hist.date !== today || !eventMatchesFilter(event)) return
+    if (hist.date !== today) return
 
     const last = hist.segments.length ? hist.segments[hist.segments.length - 1] : null
     if (last && event.timestamp - last.end <= hist.gap) {
@@ -585,8 +528,6 @@ function onLiveHistoryEvent(event) {
             // Roll the sparkline forward so the newest playing is visible
             last.density = (last.density || []).slice(1).concat(1)
         }
-        const key = event.bank || '-'
-        last.banks[key] = (last.banks[key] || 0) + 1
         if (hist.followLive && hist.selection) {
             hist.selection.end = event.timestamp
             hist.previewEvents.push(event)
@@ -600,7 +541,6 @@ function onLiveHistoryEvent(event) {
             min_note: event.note ?? null,
             max_note: event.note ?? null,
             avg_velocity: event.velocity ?? 0,
-            banks: { [event.bank || '-']: 1 },
             density: new Array(48).fill(0),
         })
     } else {
@@ -617,16 +557,9 @@ onLiveEvent((event) => {
     onLiveHistoryEvent(event)
 })
 
-// Called by app.js when the recording bank changes
-function onBankChanged() {
-    if (!viewHistory.classList.contains('hidden')) renderSegments()
-}
-
 // ===========================================
 // Initialize
 // ===========================================
-hist.bank = localStorage.getItem('midibox-history-bank') || 'all'
-historyBankFilter.value = hist.bank
 const savedGap = parseInt(localStorage.getItem('midibox-history-gap') || '', 10)
 if (Number.isFinite(savedGap) && savedGap > 0) {
     hist.gap = savedGap

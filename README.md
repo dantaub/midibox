@@ -23,14 +23,12 @@ Perfect for musicians who want to capture spontaneous practice moments without r
   - **Live** - 88-key piano visualization (A0-C8) above a vertical timeline: time
     scrolls downward (or upward - the direction flips from the timeline controls)
     while pitch runs across, lined up with the keys above
-  - A **Live** toggle in the header follows the present and keeps refreshing;
-    switch it off to freeze the view, or hit Refresh to re-read the window
-  - The live update rate is a note length (1/1 down to 1/16, dotted and triplet)
-    at a tempo set by a 40-220 BPM slider
+  - A **Live** toggle under the timeline follows the present, stepping the view
+    forward at a note length (1/1 down to 1/16, dotted and triplet) against a
+    40-220 BPM slider; switching it off freezes the view and swaps those
+    controls for pan, zoom and the selection tools
   - **History** - recorded activity grouped by date, split into stretches of
     playing, with sparklines, per-stretch playback, and save-as-session
-  - Lettered recording banks (A-L, or untagged) that tag incoming notes, with a
-    matching bank filter on the History tab
   - Event log as a draggable floating window, toggled from the header
   - Session management (save/load named sessions with performer and song info)
   - MIDI output selection for playback
@@ -79,16 +77,11 @@ bun run start
 4. Play your keyboard - notes appear on the virtual piano in real-time
 5. Use the session panel to save and label recordings
 
-### Banks and history
+### History
 
-Pick a bank (A-L) in the **Recording Bank** panel on the Live tab and every note
-captured from then on is tagged with that letter; leave it on *All (untagged)* to
-record without a tag. The **History** tab lists what was played by date, splits
-each day into stretches of continuous playing, and filters all of it by bank.
-
-The bank tag is an added, nullable column on `midi_events` and `sessions`: older
-databases are migrated in place on startup, rows recorded before banks existed
-read as untagged, and clients that don't send a bank keep working unchanged.
+The **History** tab lists what was played by date and splits each day into
+stretches of continuous playing, which can be previewed, played back to the
+keyboard, or saved as a session.
 
 ### Service Installation
 
@@ -131,11 +124,9 @@ sudo rc-service midibox status  # logs: /var/log/midibox.log
 
 | Method | Endpoint                               | Description                                |
 | ------ | -------------------------------------- | ------------------------------------------ |
-| GET    | `/api/events/recent?minutes=5&bank=`   | Get recent MIDI events                     |
-| GET    | `/api/events/range?start=&end=&bank=`  | Get events in time range                   |
-| GET    | `/api/bank`                            | Current recording bank + available banks   |
-| POST   | `/api/bank`                            | Set the bank new notes are tagged with     |
-| GET    | `/api/history/days?tz=&bank=`          | Per-day activity totals, newest first      |
+| GET    | `/api/events/recent?minutes=5`         | Get recent MIDI events                     |
+| GET    | `/api/events/range?start=&end=`        | Get events in time range                   |
+| GET    | `/api/history/days?tz=`                | Per-day activity totals, newest first      |
 | GET    | `/api/history/segments?start=&end=`    | Stretches of activity (plus sessions)      |
 | GET    | `/api/sessions`                        | List all sessions                          |
 | POST   | `/api/sessions`                        | Create a new session                       |

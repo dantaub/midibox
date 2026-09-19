@@ -119,10 +119,6 @@ header {
 	border-color: #2a5a3a;
 }
 
-/* Live is a toggle: pulse while it is following */
-.btn-live-toggle.active {
-	animation: pulse 2s infinite;
-}
 
 h1 {
 	font-size: 1.5rem;
@@ -504,10 +500,52 @@ select {
 .timeline-controls {
 	display: flex;
 	align-items: center;
+	justify-content: space-between;
+	gap: 0.5rem;
+	margin-top: 0.5rem;
+}
+
+/* Live/refresh on the left, direction on the right, mode controls in between */
+.timeline-controls-side {
+	display: flex;
+	align-items: center;
+	gap: 0.25rem;
+	flex: 0 0 auto;
+}
+
+.timeline-controls-right {
+	justify-content: flex-end;
+}
+
+.timeline-controls-main {
+	display: flex;
+	align-items: center;
 	justify-content: center;
 	gap: 0.25rem;
+	flex: 1 1 auto;
 	flex-wrap: wrap;
-	margin-top: 0.5rem;
+}
+
+.btn-live-toggle {
+	padding: 0.3rem 0.7rem;
+	font-size: 0.75rem;
+	border: none;
+	border-radius: 3px;
+	background: #1a1a2e;
+	color: #888;
+	cursor: pointer;
+	white-space: nowrap;
+}
+
+.btn-live-toggle:hover {
+	background: #252550;
+	color: #fff;
+}
+
+.btn-live-toggle.active {
+	background: #2a5a3a;
+	color: #4caf50;
+	animation: pulse 2s infinite;
 }
 
 .timeline-controls button {
@@ -748,30 +786,6 @@ select {
 .view {
 	flex: 1;
 	min-height: 0;
-}
-
-/* ===========================================
-   Recording bank
-   =========================================== */
-.bank-hint {
-	font-size: 0.75rem;
-	color: #888;
-}
-
-.bank-chip {
-	display: inline-block;
-	padding: 0 0.35rem;
-	border-radius: 3px;
-	background: #2a3a5a;
-	color: #9ec5fe;
-	font-size: 0.7rem;
-	font-weight: bold;
-	line-height: 1.4;
-}
-
-.bank-chip.untagged {
-	background: #2a2a3a;
-	color: #777;
 }
 
 /* ===========================================

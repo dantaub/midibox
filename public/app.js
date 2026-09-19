@@ -752,7 +752,9 @@ let dragState = null  // { mode: 'new'|'left'|'right', startTime: number }
 const handleLeft = $('handleLeft')
 const handleRight = $('handleRight')
 
-// The Live button in the header reflects whether the view follows "now"
+// The Live button reflects whether the view follows "now", and decides which
+// half of the controls row is on show: the update rate while live, or
+// navigation and selection tools once the view is frozen.
 function updateLiveButton() {
     const live = isLive()
     const btn = $('btnLiveToggle')
@@ -760,6 +762,9 @@ function updateLiveButton() {
     btn.title = live
         ? 'Following live - click to freeze the view'
         : 'Frozen - click to follow live (Home)'
+
+    $('liveRateControls').classList.toggle('hidden', !live)
+    $('timelineNavControls').classList.toggle('hidden', live)
 }
 
 
@@ -1149,6 +1154,15 @@ function addEventToTimeline(event) {
     if (!isLive()) return
 
     timeline.events.push(event)
+
+    // Nothing refetches the window while live, so drop events that have
+    // scrolled well past the top of the view to bound memory. The margin
+    // leaves room to zoom out a little without a round trip.
+    const keepFrom = getViewStart() - timeline.duration * 2
+    if (timeline.events.length > 2000 && timeline.events[0].timestamp < keepFrom) {
+        timeline.events = timeline.events.filter(e => e.timestamp >= keepFrom)
+    }
+
     // In live mode, the view auto-updates, just redraw
     drawTimeline()
 }
@@ -1216,26 +1230,17 @@ timelineTempo.addEventListener('input', () => {
     scheduleLiveTick()
 })
 
-// While live, keep the view moving at the chosen rate and periodically re-read
-// the window, so anything written outside this browser session shows up too.
-let lastLiveFetch = 0
+// While live, keep the view moving at the chosen rate. No database reads are
+// needed: every captured event arrives over the WebSocket and is appended to
+// the cache, so a redraw is all that's left to do.
 let liveTickTimer = null
 
-async function liveTick() {
+function liveTick() {
     liveTickTimer = null
 
     if (isLive()) {
         updateTimeLabels()
         drawTimeline()
-
-        // Re-reading the database is far more expensive than a redraw, so it
-        // runs on its own floor no matter how fast the note rate is
-        const refetchEvery = Math.max(5000, liveIntervalMs() * 8)
-        if (Date.now() - lastLiveFetch > refetchEvery) {
-            lastLiveFetch = Date.now()
-            await fetchTimelineEvents(getViewStart(), getViewEnd())
-            drawTimeline()
-        }
     }
 
     scheduleLiveTick()
@@ -1292,8 +1297,6 @@ function connect() {
             const data = JSON.parse(e.data)
             if (data.type === 'midi') {
                 handleMidiEvent(data.event)
-            } else if (data.type === 'bank') {
-                applyBank(data.bank)
             } else if (data.type === 'output') {
                 setOutputStatus(data.output)
             } else if (data.type === 'playback') {
@@ -2180,57 +2183,6 @@ btnFlip.addEventListener('click', () => {
 })
 
 // ===========================================
-// Recording Bank
-// ===========================================
-const BANK_LETTERS = 'ABCDEFGHIJKL'.split('')
-const bankSelect = $('bankSelect')
-const bankHint = $('bankHint')
-
-// Current bank for incoming notes ('' = all/untagged)
-let currentBank = ''
-
-for (const letter of BANK_LETTERS) {
-    const option = document.createElement('option')
-    option.value = letter
-    option.textContent = `Bank ${letter}`
-    bankSelect.appendChild(option)
-}
-
-function applyBank(bank) {
-    currentBank = bank || ''
-    bankSelect.value = currentBank
-    bankHint.textContent = currentBank
-        ? `Incoming notes are tagged bank ${currentBank}.`
-        : 'Incoming notes are not tagged.'
-    // Let the history view know which bank new notes carry
-    if (typeof onBankChanged === 'function') onBankChanged(currentBank)
-}
-
-async function loadBank() {
-    try {
-        const res = await fetch('/api/bank')
-        const data = await res.json()
-        applyBank(data.bank)
-    } catch (err) {
-        console.error('Failed to load bank:', err)
-    }
-}
-
-bankSelect.addEventListener('change', async () => {
-    const bank = bankSelect.value
-    applyBank(bank)
-    try {
-        await fetch('/api/bank', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ bank: bank || null }),
-        })
-    } catch (err) {
-        console.error('Failed to set bank:', err)
-    }
-})
-
-// ===========================================
 // Floating Event Log Window
 // ===========================================
 const eventLogPanel = $('eventLogPanel')
@@ -2338,6 +2290,5 @@ connect()
 loadSessions()
 loadOutputs().then(loadOutputStatus)
 loadThruStatus()
-loadBank()
 loadEventLogState()
 updatePlayButtons()

@@ -18,8 +18,6 @@
         <div class="header-right">
             <div class="header-control">
                 <button class="btn-icon btn-log-toggle" id="btnToggleEventLog" title="Toggle event log window">&#x2630; Log</button>
-                <button class="btn-icon btn-live-toggle" id="btnLiveToggle" title="Follow live (Home)">&#x25B6; Live</button>
-                <button class="btn-icon" id="timelineRefresh" title="Reload the timeline">&#x21BB;</button>
             </div>
             <div class="header-control">
                 <button class="btn-connect" id="btnConnectOut" title="Open the selected MIDI output">&#x1F50C; Connect Out</button>
@@ -62,49 +60,50 @@
                 </div>
 
                 <div class="timeline-controls">
-                    <button id="timelinePanLeft" class="btn-icon" title="Earlier (Arrow Up)">&#x2191;</button>
-                    <button id="timelineZoomIn" class="btn-icon" title="Zoom In (+)">+</button>
-                    <button id="timelineZoomOut" class="btn-icon" title="Zoom Out (-)">-</button>
-                    <button id="timelinePanRight" class="btn-icon" title="Later (Arrow Down)">&#x2193;</button>
-                    <select id="timelineRate" title="Live update rate, in note lengths at the tempo below">
-                        <option value="4">1/1</option>
-                        <option value="3">1/2.</option>
-                        <option value="2">1/2</option>
-                        <option value="1.5">1/4.</option>
-                        <option value="1" selected>1/4 &#x2669;</option>
-                        <option value="0.6666666666666666">1/4T</option>
-                        <option value="0.75">1/8.</option>
-                        <option value="0.5">1/8 &#x266A;</option>
-                        <option value="0.3333333333333333">1/8T</option>
-                        <option value="0.25">1/16</option>
-                    </select>
-                    <input type="range" id="timelineTempo" class="tempo-slider" min="40" max="220" step="1" value="120" title="Tempo (BPM)">
-                    <span class="tempo-readout" id="tempoReadout">120 BPM</span>
-                    <span class="timeline-separator">|</span>
-                    <button id="timelinePlaySelection" class="btn-play" title="Play selection (Space)" disabled>&#x25B6;</button>
-                    <button id="timelineStop" class="btn-stop-small" title="Stop (Esc)" disabled>&#x23F9;</button>
-                    <button id="timelineSaveNew" class="btn-save" title="Save selection as session" disabled>&#x1F4BE;</button>
-                    <button id="timelineClear" class="btn-icon" title="Clear selection (Esc)" disabled>&#x2715;</button>
-                    <span class="timeline-separator">|</span>
-                    <button id="timelineFlip" class="btn-icon" title="Flip timeline direction">&#x21C5;</button>
+                    <div class="timeline-controls-side">
+                        <button class="btn-live-toggle" id="btnLiveToggle" title="Follow live (Home)">&#x25B6; Live</button>
+                        <button id="timelineRefresh" class="btn-icon" title="Reload the timeline">&#x21BB;</button>
+                    </div>
+
+                    <!-- Live: how often the view steps forward -->
+                    <div class="timeline-controls-main" id="liveRateControls">
+                        <select id="timelineRate" title="Live update rate, in note lengths at the tempo beside it">
+                            <option value="4">1/1</option>
+                            <option value="3">1/2.</option>
+                            <option value="2">1/2</option>
+                            <option value="1.5">1/4.</option>
+                            <option value="1" selected>1/4 &#x2669;</option>
+                            <option value="0.6666666666666666">1/4T</option>
+                            <option value="0.75">1/8.</option>
+                            <option value="0.5">1/8 &#x266A;</option>
+                            <option value="0.3333333333333333">1/8T</option>
+                            <option value="0.25">1/16</option>
+                        </select>
+                        <input type="range" id="timelineTempo" class="tempo-slider" min="40" max="220" step="1" value="120" title="Tempo (BPM)">
+                        <span class="tempo-readout" id="tempoReadout">120 BPM</span>
+                    </div>
+
+                    <!-- Frozen: move around and work with a selection -->
+                    <div class="timeline-controls-main hidden" id="timelineNavControls">
+                        <button id="timelinePanLeft" class="btn-icon" title="Earlier (Arrow Up)">&#x2191;</button>
+                        <button id="timelineZoomIn" class="btn-icon" title="Zoom In (+)">+</button>
+                        <button id="timelineZoomOut" class="btn-icon" title="Zoom Out (-)">-</button>
+                        <button id="timelinePanRight" class="btn-icon" title="Later (Arrow Down)">&#x2193;</button>
+                        <span class="timeline-separator">|</span>
+                        <button id="timelinePlaySelection" class="btn-play" title="Play selection (Space)" disabled>&#x25B6;</button>
+                        <button id="timelineStop" class="btn-stop-small" title="Stop (Esc)" disabled>&#x23F9;</button>
+                        <button id="timelineSaveNew" class="btn-save" title="Save selection as session" disabled>&#x1F4BE;</button>
+                        <button id="timelineClear" class="btn-icon" title="Clear selection (Esc)" disabled>&#x2715;</button>
+                    </div>
+
+                    <div class="timeline-controls-side timeline-controls-right">
+                        <button id="timelineFlip" class="btn-icon" title="Flip timeline direction">&#x21C5;</button>
+                    </div>
                 </div>
             </div>
         </div>
 
         <div class="sidebar">
-            <div class="card">
-                <h2>Recording Bank</h2>
-                <div class="controls">
-                    <div class="control-row">
-                        <label class="control-label" for="bankSelect">Bank:</label>
-                        <select id="bankSelect">
-                            <option value="">All (untagged)</option>
-                        </select>
-                    </div>
-                    <div class="bank-hint" id="bankHint">Incoming notes are not tagged.</div>
-                </div>
-            </div>
-
             <!-- Session Edit Panel (shown when editing) -->
             <div class="card edit-panel hidden" id="editPanel">
                 <h2>Edit Session</h2>
@@ -168,9 +167,6 @@
     <section class="view history-view hidden" id="viewHistory">
         <aside class="card history-days-card">
             <div class="history-toolbar">
-                <select id="historyBankFilter" title="Filter by bank">
-                    <option value="all">All banks</option>
-                </select>
                 <select id="historyGap" title="Split activity when silence exceeds">
                     <option value="30000">30s gaps</option>
                     <option value="60000" selected>1m gaps</option>
@@ -208,7 +204,6 @@
                 <div class="history-save-form hidden" id="historySaveForm">
                     <input type="text" id="historySaveSong" placeholder="Song name">
                     <input type="text" id="historySavePerformer" placeholder="Performer">
-                    <select id="historySaveBank" title="Bank tag"></select>
                     <button class="btn btn-primary" id="historySaveConfirm">Save session</button>
                     <button class="btn btn-secondary" id="historySaveCancel">Cancel</button>
                 </div>

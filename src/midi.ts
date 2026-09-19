@@ -1,4 +1,4 @@
-import { recordEvent, getCurrentBank, type MidiEvent } from "./db";
+import { recordEvent, type MidiEvent } from "./db";
 
 type MidiEventCallback = (event: MidiEvent) => void;
 
@@ -246,7 +246,6 @@ async function startCaptureMacOS(deviceName?: string): Promise<string> {
       const event: MidiEvent = {
         timestamp: Date.now(),
         ...parsed,
-        bank: getCurrentBank(),
       };
       recordEvent(event);
       notifyListeners(event);
@@ -322,7 +321,6 @@ async function startCaptureLinux(devicePath?: string): Promise<string> {
               const event: MidiEvent = {
                 timestamp: Date.now(),
                 ...parsed,
-                bank: getCurrentBank(),
               };
               recordEvent(event);
               notifyListeners(event);
