@@ -21,7 +21,10 @@ Perfect for musicians who want to capture spontaneous practice moments without r
 - **SQLite storage** using Bun's built-in `bun:sqlite` for efficient event storage
 - **Web UI** (port 4000) with two tabs:
   - **Live** - 88-key piano visualization (A0-C8) above a vertical timeline: time
-    scrolls downward while pitch runs across, lined up with the keys above
+    scrolls downward (or upward - the direction flips from the timeline controls)
+    while pitch runs across, lined up with the keys above
+  - A **Live** toggle in the header follows the present and keeps refreshing;
+    switch it off to freeze the view, or hit Refresh to re-read the window
   - **History** - recorded activity grouped by date, split into stretches of
     playing, with sparklines, per-stretch playback, and save-as-session
   - Lettered recording banks (A-L, or untagged) that tag incoming notes, with a

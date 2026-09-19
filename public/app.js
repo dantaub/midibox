@@ -222,6 +222,9 @@ const timeline = {
     playbackStartedAt: null,   // Date.now() when playback started
     playbackAnimationId: null, // requestAnimationFrame ID
 
+    // Direction: false = time runs downward, true = upward
+    flipped: false,
+
     // Data cache
     events: [],
     sessions: [],
@@ -349,8 +352,19 @@ function loadSavedTimelineView() {
     return null
 }
 
+// Which way time runs is remembered on its own, so it survives a view state
+// that has gone stale
+function saveTimelineDirection() {
+    localStorage.setItem('midibox-timeline-flip', timeline.flipped ? '1' : '0')
+}
+
+function loadTimelineDirection() {
+    timeline.flipped = localStorage.getItem('midibox-timeline-flip') === '1'
+}
+
 async function loadTimelineData() {
     console.log('[Timeline] loadTimelineData called')
+    loadTimelineDirection()
     const saved = loadSavedTimelineView()
 
     if (saved) {
@@ -363,11 +377,7 @@ async function loadTimelineData() {
 
     console.log('[Timeline] After load - duration:', timeline.duration, 'startTime:', timeline.startTime, 'isLive:', isLive())
 
-    if (!isLive()) {
-        showResumeButton()
-    } else {
-        $('timelineResumeAuto').classList.add('hidden')
-    }
+    updateLiveButton()
 
     await fetchTimelineEvents(getViewStart(), getViewEnd())
     updateTimeLabels()
@@ -377,7 +387,7 @@ async function loadTimelineData() {
 // Force return to live mode (used by Resume button and Home key)
 async function returnToLive() {
     timeline.startTime = null
-    $('timelineResumeAuto').classList.add('hidden')
+    updateLiveButton()
 
     await fetchTimelineEvents(getViewStart(), getViewEnd())
     updateTimeLabels()
@@ -385,9 +395,11 @@ async function returnToLive() {
 }
 
 function updateTimeLabels() {
-    // The timeline runs downward, so these read as top and bottom edges
-    timelineStart.textContent = `\u2191 ${new Date(getViewStart()).toLocaleTimeString()}`
-    timelineEnd.textContent = `${new Date(getViewEnd()).toLocaleTimeString()} \u2193`
+    // Label the top and bottom edges of the view, whichever way time runs
+    const top = timeline.flipped ? getViewEnd() : getViewStart()
+    const bottom = timeline.flipped ? getViewStart() : getViewEnd()
+    timelineStart.textContent = `\u2191 ${new Date(top).toLocaleTimeString()}`
+    timelineEnd.textContent = `${new Date(bottom).toLocaleTimeString()} \u2193`
     // Persist view state
     saveTimelineView()
 }
@@ -434,13 +446,22 @@ function getSessionLayout(width, height, viewStart, viewEnd) {
     const laneCount = Math.max(...lanes) + 1
     const laneWidth = Math.min(110, width / Math.max(2, laneCount + 1))
 
-    const bands = sorted.map((session, i) => ({
-        session,
-        x: lanes[i] * laneWidth,
-        laneWidth,
-        y1: Math.max(0, ((session.start_time - viewStart) / duration) * height),
-        y2: Math.min(height, ((session.end_time - viewStart) / duration) * height),
-    }))
+    const ty = (t) => {
+        const ratio = (t - viewStart) / duration
+        return timeline.flipped ? height - ratio * height : ratio * height
+    }
+
+    const bands = sorted.map((session, i) => {
+        const yA = ty(session.start_time)
+        const yB = ty(session.end_time)
+        return {
+            session,
+            x: lanes[i] * laneWidth,
+            laneWidth,
+            y1: Math.max(0, Math.min(yA, yB)),
+            y2: Math.min(height, Math.max(yA, yB)),
+        }
+    })
 
     return { bands, laneWidth }
 }
@@ -509,8 +530,12 @@ function drawTimeline() {
     const duration = timeline.duration
     ctx.clearRect(0, 0, width, height)
 
-    // Time runs top (earlier) to bottom (later/now); pitch runs left to right,
-    // matching the piano above.
+    // Pitch runs left to right, matching the piano above; time runs down the
+    // screen, or up when flipped.
+    const ty = (t) => {
+        const ratio = (t - viewStart) / duration
+        return timeline.flipped ? height - ratio * height : ratio * height
+    }
 
     // Draw background grid (pitch lines, one per octave)
     ctx.strokeStyle = '#1a1a2e'
@@ -529,7 +554,7 @@ function drawTimeline() {
     const minuteMs = 60 * 1000
     const startMinute = Math.ceil(viewStart / minuteMs) * minuteMs
     for (let t = startMinute; t < viewEnd; t += minuteMs) {
-        const y = ((t - viewStart) / duration) * height
+        const y = ty(t)
         ctx.beginPath()
         ctx.moveTo(0, y)
         ctx.lineTo(width, y)
@@ -564,28 +589,28 @@ function drawTimeline() {
             const spot = noteToX(bar.note, width)
             const isBlack = [1, 3, 6, 8, 10].includes(bar.note % 12)
             if (isBlack !== pass) continue
-            const y1 = ((bar.start - viewStart) / duration) * height
-            const y2 = ((bar.end - viewStart) / duration) * height
+            const yA = ty(bar.start)
+            const yB = ty(bar.end)
             const brightness = 50 + (bar.velocity / 127) * 50
             ctx.fillStyle = isBlack ? `hsl(340, 80%, ${brightness}%)` : `hsl(160, 70%, ${brightness}%)`
-            ctx.fillRect(spot.x, y1, spot.w - 1, Math.max(2, y2 - y1))
+            ctx.fillRect(spot.x, Math.min(yA, yB), spot.w - 1, Math.max(2, Math.abs(yB - yA)))
         }
     }
 
     // Draw selection overlay (a horizontal band spanning all pitches)
     if (timeline.selection) {
-        const selY1 = ((timeline.selection.start - viewStart) / duration) * height
-        const selY2 = ((timeline.selection.end - viewStart) / duration) * height
+        const selY1 = ty(timeline.selection.start)
+        const selY2 = ty(timeline.selection.end)
         ctx.save()
         ctx.globalAlpha = 0.3
         ctx.fillStyle = '#e94560'
-        ctx.fillRect(0, selY1, width, selY2 - selY1)
+        ctx.fillRect(0, Math.min(selY1, selY2), width, Math.abs(selY2 - selY1))
         ctx.restore()
     }
 
     // Draw playback indicator
     if (timeline.isPlaying && timeline.playbackPosition != null) {
-        const y = ((timeline.playbackPosition - viewStart) / duration) * height
+        const y = ty(timeline.playbackPosition)
         if (y >= 0 && y <= height) {
             ctx.save()
             // Red playback line
@@ -613,20 +638,28 @@ function drawTimeline() {
 
 function timeToY(time) {
     const height = timelineContainer.clientHeight
-    return ((time - getViewStart()) / timeline.duration) * height
+    const ratio = (time - getViewStart()) / timeline.duration
+    return timeline.flipped ? height - ratio * height : ratio * height
 }
 
 function yToTime(y) {
     const height = timelineContainer.clientHeight
-    return getViewStart() + (y / height) * timeline.duration
+    const ratio = timeline.flipped ? (height - y) / height : y / height
+    return getViewStart() + ratio * timeline.duration
+}
+
+// Sign of "later" on screen: +1 when time runs downward, -1 when flipped.
+// Used so scrolling and the pan buttons keep moving the view the same way.
+function timeDirection() {
+    return timeline.flipped ? -1 : 1
 }
 
 function updateSelectionUI() {
     if (timeline.selection) {
         const y1 = timeToY(timeline.selection.start)
         const y2 = timeToY(timeline.selection.end)
-        timelineSelection.style.top = y1 + 'px'
-        timelineSelection.style.height = (y2 - y1) + 'px'
+        timelineSelection.style.top = Math.min(y1, y2) + 'px'
+        timelineSelection.style.height = Math.abs(y2 - y1) + 'px'
         timelineSelection.classList.add('active')
 
         const start = new Date(timeline.selection.start)
@@ -715,9 +748,16 @@ let dragState = null  // { mode: 'new'|'left'|'right', startTime: number }
 const handleLeft = $('handleLeft')
 const handleRight = $('handleRight')
 
-function showResumeButton() {
-    $('timelineResumeAuto').classList.remove('hidden')
+// The Live button in the header reflects whether the view follows "now"
+function updateLiveButton() {
+    const live = isLive()
+    const btn = $('btnLiveToggle')
+    btn.classList.toggle('active', live)
+    btn.title = live
+        ? 'Following live - click to freeze the view'
+        : 'Frozen - click to follow live (Home)'
 }
+
 
 // Find session at a given pixel position on the timeline
 function getSessionAtPosition(x, y) {
@@ -846,7 +886,7 @@ document.addEventListener('mouseup', (e) => {
     // If we dragged, switch to detached mode
     if (dragState.dragging && isLive()) {
         timeline.startTime = getViewStart()  // Freeze current view
-        showResumeButton()
+        updateLiveButton()
     }
 
     // If we clicked (not dragged), check if we clicked on a session
@@ -919,7 +959,7 @@ timelineCanvas.addEventListener('wheel', async (e) => {
     // Enter detached mode if currently live
     if (isLive()) {
         timeline.startTime = getViewStart()
-        showResumeButton()
+        updateLiveButton()
     }
 
     const zooming = e.ctrlKey || e.shiftKey || e.metaKey
@@ -927,7 +967,7 @@ timelineCanvas.addEventListener('wheel', async (e) => {
     // Plain scroll = pan (time runs down the screen)
     if (!zooming) {
         const delta = Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? e.deltaY : e.deltaX
-        const panAmount = (delta / 500) * timeline.duration
+        const panAmount = (delta / 500) * timeline.duration * timeDirection()
         timeline.startTime = Math.max(0, timeline.startTime + panAmount)
 
         await ensureTimelineDataCovers(getViewStart(), getViewEnd())
@@ -940,7 +980,8 @@ timelineCanvas.addEventListener('wheel', async (e) => {
 
     // Zoom around the time under the pointer
     const rect = timelineCanvas.getBoundingClientRect()
-    const ratio = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height))
+    let ratio = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height))
+    if (timeline.flipped) ratio = 1 - ratio
     const centerTime = timeline.startTime + timeline.duration * ratio
 
     // Gentler zoom factor (1.1 instead of 1.2)
@@ -977,12 +1018,12 @@ document.addEventListener('keydown', async (e) => {
         case 'ArrowUp':
         case 'ArrowLeft':
             e.preventDefault()
-            await panTimeline(-1)  // earlier (up)
+            await panTimeline(-1 * timeDirection())  // toward the top of the view
             break
         case 'ArrowDown':
         case 'ArrowRight':
             e.preventDefault()
-            await panTimeline(1)   // later (down)
+            await panTimeline(1 * timeDirection())   // toward the bottom
             break
         case '+':
         case '=':
@@ -1113,11 +1154,22 @@ window.addEventListener('resize', resizeCanvas)
 resizeCanvas()
 loadTimelineData()
 
-// Refresh timeline periodically (only in live mode)
-setInterval(() => {
+// While live, keep the view moving and periodically re-read the window, so
+// anything written outside this browser session shows up too.
+let lastLiveFetch = 0
+
+setInterval(async () => {
     if (!isLive()) return
+
+    updateTimeLabels()
     drawTimeline()
-}, 5000)
+
+    if (Date.now() - lastLiveFetch > 10000) {
+        lastLiveFetch = Date.now()
+        await fetchTimelineEvents(getViewStart(), getViewEnd())
+        drawTimeline()
+    }
+}, 1000)
 
 // ===========================================
 // WebSocket Connection
@@ -1693,7 +1745,7 @@ async function selectSession(sessionId, startTime, endTime) {
     await ensureTimelineDataCovers(getViewStart(), getViewEnd())
     updateTimeLabels()
     drawTimeline()
-    showResumeButton()
+    updateLiveButton()
 }
 
 // ===========================================
@@ -1950,7 +2002,8 @@ const btnZoomIn = $('timelineZoomIn')
 const btnZoomOut = $('timelineZoomOut')
 const btnPanLeft = $('timelinePanLeft')
 const btnPanRight = $('timelinePanRight')
-const btnResumeAuto = $('timelineResumeAuto')
+const btnLiveToggle = $('btnLiveToggle')
+const btnFlip = $('timelineFlip')
 
 // Zoom to selection or zoom in on center
 btnZoomIn.addEventListener('click', async () => {
@@ -1973,7 +2026,7 @@ btnZoomIn.addEventListener('click', async () => {
     await ensureTimelineDataCovers(getViewStart(), getViewEnd())
     updateTimeLabels()
     drawTimeline()
-    showResumeButton()
+    updateLiveButton()
 })
 
 // Zoom out, keeping selection in view if present
@@ -1995,7 +2048,7 @@ btnZoomOut.addEventListener('click', async () => {
     await ensureTimelineDataCovers(getViewStart(), getViewEnd())
     updateTimeLabels()
     drawTimeline()
-    showResumeButton()
+    updateLiveButton()
 })
 
 async function panTimeline(direction) {
@@ -2010,13 +2063,43 @@ async function panTimeline(direction) {
     await ensureTimelineDataCovers(getViewStart(), getViewEnd())
     updateTimeLabels()
     drawTimeline()
-    showResumeButton()
+    updateLiveButton()
 }
 
 btnPanLeft.addEventListener('click', () => panTimeline(-1))
 btnPanRight.addEventListener('click', () => panTimeline(1))
 
-btnResumeAuto.addEventListener('click', () => returnToLive())
+// Live is a toggle: on = follow "now" continuously, off = freeze the window
+btnLiveToggle.addEventListener('click', () => {
+    if (isLive()) {
+        timeline.startTime = getViewStart()  // freeze where we are
+        updateTimeLabels()
+        updateLiveButton()
+        drawTimeline()
+    } else {
+        returnToLive()
+    }
+})
+
+// Flip which way time runs on the timeline
+function updateDirectionControls() {
+    btnFlip.classList.toggle('active', timeline.flipped)
+    btnFlip.title = timeline.flipped
+        ? 'Time runs upward - click for downward'
+        : 'Time runs downward - click for upward'
+    // The pan buttons move the view, so their arrows follow the direction
+    btnPanLeft.innerHTML = timeline.flipped ? '&#x2193;' : '&#x2191;'
+    btnPanRight.innerHTML = timeline.flipped ? '&#x2191;' : '&#x2193;'
+}
+
+btnFlip.addEventListener('click', () => {
+    timeline.flipped = !timeline.flipped
+    saveTimelineDirection()
+    updateDirectionControls()
+    updateTimeLabels()
+    updateSelectionUI()
+    drawTimeline()
+})
 
 // ===========================================
 // Recording Bank
@@ -2171,6 +2254,8 @@ eventLogHeader.addEventListener('touchend', endLogDrag)
 // ===========================================
 // Initialize
 // ===========================================
+updateLiveButton()
+updateDirectionControls()
 connect()
 loadSessions()
 loadOutputs().then(loadOutputStatus)

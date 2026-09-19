@@ -98,7 +98,7 @@ header {
 	color: #fff;
 }
 
-.btn-log-toggle {
+.header-control .btn-icon {
 	background: #1a1a2e;
 	color: #8a8aa8;
 	border: 1px solid #2a2a4a;
@@ -106,16 +106,22 @@ header {
 	padding: 0.35rem 0.6rem;
 	font-size: 0.8rem;
 	cursor: pointer;
+	white-space: nowrap;
 }
 
-.btn-log-toggle:hover {
+.header-control .btn-icon:hover {
 	color: #eee;
 }
 
-.btn-log-toggle.active {
+.header-control .btn-icon.active {
 	background: #2a5a3a;
 	color: #4caf50;
 	border-color: #2a5a3a;
+}
+
+/* Live is a toggle: pulse while it is following */
+.btn-live-toggle.active {
+	animation: pulse 2s infinite;
 }
 
 h1 {
@@ -519,6 +525,11 @@ select {
 	color: #fff;
 }
 
+.timeline-controls button.active {
+	background: #2a3a5a;
+	color: #9ec5fe;
+}
+
 .timeline-controls select {
 	padding: 0.25rem;
 	font-size: 0.75rem;
@@ -670,22 +681,6 @@ select {
 	color: #444;
 	font-size: 0.9rem;
 	padding: 0 0.25rem;
-}
-
-/* Resume button */
-.btn-resume {
-	padding: 0.25rem 0.75rem;
-	font-size: 0.75rem;
-	border: none;
-	border-radius: 3px;
-	background: #2a5a3a;
-	color: #4caf50;
-	cursor: pointer;
-	font-weight: bold;
-}
-
-.btn-resume:hover {
-	background: #3a7a4a;
 }
 
 /* Toggle switch */
@@ -1208,7 +1203,7 @@ select {
 	}
 
 	.btn-connect,
-	.btn-log-toggle {
+	.header-control .btn-icon {
 		padding: 0.25rem 0.4rem;
 		font-size: 0.7rem;
 	}

@@ -16,7 +16,11 @@
             <button class="tab" data-view="history">History</button>
         </nav>
         <div class="header-right">
-            <button class="btn-icon btn-log-toggle" id="btnToggleEventLog" title="Toggle event log window">&#x2630; Log</button>
+            <div class="header-control">
+                <button class="btn-icon btn-log-toggle" id="btnToggleEventLog" title="Toggle event log window">&#x2630; Log</button>
+                <button class="btn-icon btn-live-toggle" id="btnLiveToggle" title="Follow live (Home)">&#x25B6; Live</button>
+                <button class="btn-icon" id="timelineRefresh" title="Reload the timeline">&#x21BB;</button>
+            </div>
             <div class="header-control">
                 <button class="btn-connect" id="btnConnectOut" title="Open the selected MIDI output">&#x1F50C; Connect Out</button>
                 <span class="out-status" id="outStatus"></span>
@@ -68,8 +72,7 @@
                     <button id="timelineSaveNew" class="btn-save" title="Save selection as session" disabled>&#x1F4BE;</button>
                     <button id="timelineClear" class="btn-icon" title="Clear selection (Esc)" disabled>&#x2715;</button>
                     <span class="timeline-separator">|</span>
-                    <button id="timelineResumeAuto" class="btn-resume hidden" title="Return to live (Home)">&#x25B6; Live</button>
-                    <button id="timelineRefresh" class="btn-icon" title="Refresh">&#x21BB;</button>
+                    <button id="timelineFlip" class="btn-icon" title="Flip timeline direction">&#x21C5;</button>
                 </div>
             </div>
         </div>
