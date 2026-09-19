@@ -1,5 +1,5 @@
 import { getRecent, getRange, createSession, listSessions, updateSessionById, deleteSessionById, getDaySummaries, getActivitySegments, getSessionsInRange, type MidiEvent, type Session } from "./db";
-import { startCapture, stopCapture, listInputs, listOutputs, openOutput, onMidiEvent, playEvent, closeOutput, sendMidiMessage, enableThru, disableThru, isThruEnabled, getThruOutput, getOutputDevice, getInputDevice } from "./midi";
+import { startCapture, stopCapture, listInputs, listOutputs, openOutput, onMidiEvent, playEvent, closeOutput, sendMidiMessage, enableThru, disableThru, isThruEnabled, getThruOutput, getOutputDevice, getInputDevice, getTransportInfo } from "./midi";
 import { parseMidiFile, getPlayableEvents, type MidiFileEvent } from "./midi-file";
 
 const PORT = Number(process.env.MIDIBOX_PORT ?? process.env.PORT ?? 4000) || 4000;
@@ -174,6 +174,11 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
         return json({ success: true });
       }
       return json({ error: "Session not found" }, 404);
+    }
+
+    // GET /api/midi/transports - available transport schemes + which are active
+    if (path === "/midi/transports" && method === "GET") {
+      return json(getTransportInfo());
     }
 
     // GET /api/midi/inputs

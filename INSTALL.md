@@ -7,11 +7,18 @@ and decide how it should start.
 ## Requirements
 
 - [Bun](https://bun.sh) 1.0 or newer
-- A MIDI keyboard on either:
-  - **Linux** — an ALSA raw MIDI device (`/dev/snd/midiC*D*`), and a user in the
-    `audio` group
+- A MIDI source on either:
+  - **Linux** — an ALSA sequencer port (the default; PipeWire exposes these) or
+    a raw device (`/dev/snd/midiC*D*`), with the user in the `audio` group
   - **macOS** — any CoreMIDI device (MidiBox uses [JZZ](https://github.com/jazz-soft/JZZ))
+  - or a **network** source over RTP-MIDI (see [MIDI transports](#midi-transports))
 - Disk for the recordings: roughly 50 MB per million events
+
+The Linux default uses [`@julusian/midi`](https://www.npmjs.com/package/@julusian/midi)
+(RtMidi). It ships prebuilt binaries; if none matches your Pi's architecture it
+compiles on install, which needs `python3`, `make` and a C++ toolchain
+(`sudo apt install build-essential python3`). It is listed in
+`trustedDependencies`, so Bun is allowed to run its install script.
 
 ## Get it running
 
@@ -120,6 +127,29 @@ Everything is optional; the defaults work.
 | Service user | the user who ran the installer | `User=` in the unit, `MIDIBOX_USER` in `/etc/conf.d/midibox` |
 | `bun` path | `command -v bun` | `ExecStart=` in the unit, `MIDIBOX_BUN` in `/etc/conf.d/midibox` |
 | Database file | `midibox.db` in the working directory | `MIDIBOX_DB=/path/to/file`, or symlink it |
+| MIDI transport | `seq` (Linux), `coremidi` (macOS) | `MIDIBOX_MIDI` — a scheme or a full address |
+
+### MIDI transports
+
+MidiBox reads and writes MIDI through a selectable transport. The default is the
+ALSA sequencer (`seq`) on Linux and CoreMIDI on macOS; set `MIDIBOX_MIDI` to
+choose another, either a bare scheme or a full `scheme:address`:
+
+| `MIDIBOX_MIDI` | Meaning |
+| -------------- | ------- |
+| `seq` | ALSA seq / CoreMIDI by name via RtMidi (default). PipeWire can share the port |
+| `rawalsa` | Raw `/dev/snd/midiC*D*` — the old single-reader path |
+| `rtpm:225.0.0.37:21928` | RTP-MIDI multicast (interops with `qmidinet`, `multimidicast`) |
+| `rtp:192.168.1.50:5004` | RTP-MIDI unicast to a specific host |
+
+On Linux the default `seq` path **auto-falls back to `rawalsa`** if no sequencer
+port is available, so an unusual setup still records. Pin `MIDIBOX_MIDI=rawalsa`
+to force the old behavior. On a Pi running PipeWire, `seq` is preferred: ports
+are addressed by stable name (no `midiC0`/`midiC1` churn on replug) and other
+clients can read the same port through the PipeWire graph.
+
+For RTP-MIDI, run a peer such as `qmidinet -m` on the same multicast group, or
+point `rtp:` at another host's unicast port.
 
 ### Changing the port
 

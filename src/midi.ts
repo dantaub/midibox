@@ -1,4 +1,10 @@
 import { recordEvent, type MidiEvent } from "./db";
+import type { MidiTransport } from "./transports/types";
+import { parseAddress } from "./transports/types";
+import { RawAlsaTransport } from "./transports/rawalsa";
+import { CoreMidiTransport } from "./transports/coremidi";
+import { RtMidiTransport } from "./transports/rtmidi";
+import { makeRtpMidiTransport } from "./transports/rtpmidi";
 
 type MidiEventCallback = (event: MidiEvent) => void;
 
@@ -20,29 +26,7 @@ function notifyListeners(event: MidiEvent): void {
   }
 }
 
-// Get expected message length based on status byte
-function getMidiMessageLength(status: number): number {
-  const type = status & 0xf0;
-  switch (type) {
-    case 0x80: // Note Off
-    case 0x90: // Note On
-    case 0xa0: // Poly Aftertouch
-    case 0xb0: // Control Change
-    case 0xe0: // Pitch Bend
-      return 3;
-    case 0xc0: // Program Change
-    case 0xd0: // Channel Pressure
-      return 2;
-    case 0xf0: // System messages
-      if (status === 0xf0) return -1; // SysEx - variable length
-      if (status === 0xf1 || status === 0xf3) return 2;
-      if (status === 0xf2) return 3;
-      return 1; // Real-time messages
-    default:
-      return 0;
-  }
-}
-
+// Parse a raw MIDI message (status + data bytes) into a storable event.
 function parseMidiMessage(data: Uint8Array | number[]): Omit<MidiEvent, "timestamp"> | null {
   if (data.length < 1) return null;
 
@@ -56,421 +40,201 @@ function parseMidiMessage(data: Uint8Array | number[]): Omit<MidiEvent, "timesta
 
   switch (type) {
     case 0x90: // Note On
-      return {
-        channel,
-        type: d2 > 0 ? "noteon" : "noteoff",
-        note: d1,
-        velocity: d2,
-      };
+      return { channel, type: d2 > 0 ? "noteon" : "noteoff", note: d1, velocity: d2 };
     case 0x80: // Note Off
-      return {
-        channel,
-        type: "noteoff",
-        note: d1,
-        velocity: d2,
-      };
+      return { channel, type: "noteoff", note: d1, velocity: d2 };
     case 0xb0: // Control Change
-      return {
-        channel,
-        type: "cc",
-        control: d1,
-        value: d2,
-      };
+      return { channel, type: "cc", control: d1, value: d2 };
     case 0xe0: // Pitch Bend
-      return {
-        channel,
-        type: "pitchbend",
-        value: (d2 << 7) | d1,
-      };
+      return { channel, type: "pitchbend", value: (d2 << 7) | d1 };
     case 0xc0: // Program Change
-      return {
-        channel,
-        type: "program",
-        value: d1,
-      };
+      return { channel, type: "program", value: d1 };
     case 0xd0: // Channel Pressure
-      return {
-        channel,
-        type: "pressure",
-        value: d1,
-      };
+      return { channel, type: "pressure", value: d1 };
     case 0xa0: // Poly Aftertouch
-      return {
-        channel,
-        type: "polytouch",
-        note: d1,
-        value: d2,
-      };
+      return { channel, type: "polytouch", note: d1, value: d2 };
     default:
-      return {
-        channel: 0,
-        type: "raw",
-        data: new Uint8Array(data),
-      };
+      return { channel: 0, type: "raw", data: new Uint8Array(data) };
   }
 }
 
 // ===========================================
-// Platform-specific implementations
+// Transport registry
+//
+// Each scheme maps to a transport implementation. The active input and output
+// share a cached instance per scheme (one holds an input and an output handle
+// independently); MIDI thru gets its own fresh instance so it never fights the
+// playback output for the single output handle.
 // ===========================================
 
-// Linux: raw /dev/snd/ access
-// macOS: CoreMIDI via JZZ library
+const registry: Record<string, () => MidiTransport> = {
+  seq: () => new RtMidiTransport(),
+  rawalsa: () => new RawAlsaTransport(),
+  coremidi: () => new CoreMidiTransport(),
+  rtp: () => makeRtpMidiTransport(false),
+  rtpm: () => makeRtpMidiTransport(true),
+};
 
-let captureActive = false;
-let inputReader: ReadableStreamDefaultReader<Uint8Array> | null = null;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let jzzInput: any = null;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let jzzOutput: any = null;
-let outputDevice: string | null = null;
+const knownSchemes = Object.keys(registry);
+const instances: Record<string, MidiTransport> = {};
+
+function getTransport(scheme: string): MidiTransport {
+  const make = registry[scheme];
+  if (!make) throw new Error(`Unknown MIDI transport: ${scheme}`);
+  return (instances[scheme] ??= make());
+}
+
+function platformDefault(): string {
+  return isMacOS ? "coremidi" : "seq";
+}
+
+// Resolve an address into a scheme + the scheme-less remainder. Accepts:
+//   "seq:USB Keyboard"  -> { seq, "USB Keyboard" }   (explicit scheme)
+//   "rawalsa"           -> { rawalsa, undefined }     (bare scheme name)
+//   "/dev/snd/midiC1D0" -> { <default>, "/dev/snd..."}(bare address)
+//   undefined           -> { <default>, undefined }
+function resolve(id: string | undefined): { scheme: string; rest: string | undefined; explicit: boolean } {
+  const parsed = parseAddress(id, knownSchemes);
+  if (parsed.scheme) return { scheme: parsed.scheme, rest: parsed.rest, explicit: true };
+  if (id && knownSchemes.includes(id)) return { scheme: id, rest: undefined, explicit: true };
+  return { scheme: platformDefault(), rest: id, explicit: false };
+}
+
+// ===========================================
+// Active handles
+// ===========================================
+
+let activeInput: MidiTransport | null = null;
+let activeOutput: MidiTransport | null = null;
 let inputDevice: string | null = null;
+let outputDevice: string | null = null;
 
-// MIDI Thru state
+// MIDI thru (independent output instance so it can't collide with playback)
 let thruEnabled = false;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let thruOutput: any = null;
+let thruTransport: MidiTransport | null = null;
 let thruOutputDevice: string | null = null;
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let JZZ: any = null;
-
-async function getJZZ() {
-  if (!isMacOS) return null;
-  if (JZZ) return JZZ;
+function forwardThru(bytes: number[]): void {
+  if (!thruEnabled || !thruTransport) return;
   try {
-    const jzz = await import("jzz");
-    JZZ = jzz.default;
-    return JZZ;
+    thruTransport.send(bytes);
   } catch (err) {
-    console.error("Failed to load JZZ:", err);
-    return null;
+    console.error("MIDI thru send failed:", err);
+  }
+}
+
+// The single sink for every captured message, whatever the transport.
+function handleIncoming(bytes: number[]): void {
+  forwardThru(bytes);
+  const parsed = parseMidiMessage(bytes);
+  if (parsed) {
+    const event: MidiEvent = { timestamp: Date.now(), ...parsed };
+    recordEvent(event);
+    notifyListeners(event);
   }
 }
 
 // ===========================================
-// List Devices
+// Device discovery
 // ===========================================
 
 export async function listInputs(): Promise<string[]> {
-  if (isMacOS) {
-    const jzz = await getJZZ();
-    if (!jzz) return [];
-
-    try {
-      const info = await jzz().refresh();
-      const inputs = info.info().inputs;
-      return inputs.map((i: { name: string }) => i.name);
-    } catch (err) {
-      console.error("Failed to list MIDI inputs:", err);
-      return [];
-    }
-  } else {
-    // Linux: raw device files
-    try {
-      const { readdir } = await import("node:fs/promises");
-      const files = await readdir("/dev/snd");
-      return files
-        .filter((f) => f.startsWith("midi"))
-        .map((f) => `/dev/snd/${f}`);
-    } catch {
-      return [];
-    }
-  }
+  const scheme = activeInput?.scheme ?? resolve(process.env.MIDIBOX_MIDI).scheme;
+  return getTransport(scheme).listInputs();
 }
 
 export async function listOutputs(): Promise<string[]> {
-  if (isMacOS) {
-    const jzz = await getJZZ();
-    if (!jzz) return [];
+  const scheme = activeOutput?.scheme ?? activeInput?.scheme ?? resolve(process.env.MIDIBOX_MIDI).scheme;
+  return getTransport(scheme).listOutputs();
+}
 
-    try {
-      const info = await jzz().refresh();
-      const outputs = info.info().outputs;
-      return outputs.map((o: { name: string }) => o.name);
-    } catch (err) {
-      console.error("Failed to list MIDI outputs:", err);
-      return [];
-    }
-  } else {
-    return listInputs();
-  }
+export function getTransportInfo() {
+  return {
+    schemes: knownSchemes,
+    default: platformDefault(),
+    input: activeInput?.scheme ?? null,
+    output: activeOutput?.scheme ?? null,
+  };
 }
 
 // ===========================================
-// Input Capture
+// Input capture
 // ===========================================
 
-export async function startCapture(devicePath?: string): Promise<string> {
-  const name = isMacOS
-    ? await startCaptureMacOS(devicePath)
-    : await startCaptureLinux(devicePath);
-  inputDevice = name;
-  return name;
-}
+export async function startCapture(id?: string): Promise<string> {
+  await stopCapture();
 
-async function startCaptureMacOS(deviceName?: string): Promise<string> {
-  const jzz = await getJZZ();
-  if (!jzz) {
-    throw new Error("JZZ not available");
-  }
+  const target = id ?? process.env.MIDIBOX_MIDI ?? undefined;
+  const { scheme, rest, explicit } = resolve(target);
 
-  const engine = await jzz();
-  const info = engine.info();
-
-  if (info.inputs.length === 0) {
-    throw new Error("No MIDI input devices found");
-  }
-
-  // Find port by name or use first available
-  let selectedName = info.inputs[0].name;
-  if (deviceName) {
-    const found = info.inputs.find((i: { name: string }) => i.name === deviceName);
-    if (found) {
-      selectedName = found.name;
-    }
-  }
-
-  console.log(`Opening CoreMIDI input: ${selectedName}`);
-
-  const port = await engine.openMidiIn(selectedName);
-
-  port.connect((msg: number[]) => {
-    // Skip real-time messages
-    if (!msg[0] || msg[0] >= 0xf8) return;
-
-    // Forward through thru if enabled
-    forwardThru(msg);
-
-    const parsed = parseMidiMessage(msg);
-    if (parsed) {
-      const event: MidiEvent = {
-        timestamp: Date.now(),
-        ...parsed,
-      };
-      recordEvent(event);
-      notifyListeners(event);
-    }
-  });
-
-  jzzInput = port;
-  captureActive = true;
-
-  return selectedName;
-}
-
-async function startCaptureLinux(devicePath?: string): Promise<string> {
-  const { readdir } = await import("node:fs/promises");
-
-  let devices: string[];
   try {
-    const files = await readdir("/dev/snd");
-    devices = files
-      .filter((f) => f.startsWith("midi"))
-      .map((f) => `/dev/snd/${f}`);
-  } catch {
-    devices = [];
-  }
-
-  if (devices.length === 0) {
-    throw new Error("No MIDI devices found in /dev/snd/");
-  }
-
-  const selectedDevice =
-    devicePath ?? devices.find((d) => d.includes("midiC")) ?? devices[0]!;
-
-  console.log(`Opening raw MIDI input: ${selectedDevice}`);
-
-  captureActive = true;
-
-  const proc = Bun.spawn(["cat", selectedDevice], {
-    stdout: "pipe",
-    stderr: "ignore",
-  });
-
-  const reader = proc.stdout.getReader();
-  let buffer: number[] = [];
-  let expectedLength = 0;
-  let runningStatus = 0;
-
-  (async () => {
-    try {
-      while (captureActive) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        for (const byte of value) {
-          if (byte & 0x80) {
-            if (byte >= 0xf8) continue;
-            buffer = [byte];
-            runningStatus = byte;
-            expectedLength = getMidiMessageLength(byte);
-          } else {
-            if (buffer.length === 0 && runningStatus) {
-              buffer = [runningStatus];
-              expectedLength = getMidiMessageLength(runningStatus);
-            }
-            buffer.push(byte);
-          }
-
-          if (expectedLength > 0 && buffer.length >= expectedLength) {
-            // Forward through thru if enabled
-            forwardThru(buffer);
-
-            const parsed = parseMidiMessage(new Uint8Array(buffer));
-            if (parsed) {
-              const event: MidiEvent = {
-                timestamp: Date.now(),
-                ...parsed,
-              };
-              recordEvent(event);
-              notifyListeners(event);
-            }
-            buffer = [];
-          }
-        }
-      }
-    } catch (err) {
-      if (captureActive) {
-        console.error("MIDI read error:", err);
-      }
-    } finally {
-      reader.releaseLock();
-      proc.kill();
+    const transport = getTransport(scheme);
+    const name = await transport.openInput(rest, handleIncoming);
+    activeInput = transport;
+    inputDevice = name;
+    return name;
+  } catch (err) {
+    // Only auto-fall back to raw ALSA when the caller didn't pin a scheme and we
+    // were on the default seq path (per the requested behavior).
+    if (!explicit && scheme === "seq") {
+      console.warn(`ALSA seq input unavailable (${(err as Error).message}); falling back to raw ALSA`);
+      const transport = getTransport("rawalsa");
+      const name = await transport.openInput(rest, handleIncoming);
+      activeInput = transport;
+      inputDevice = name;
+      return name;
     }
-  })();
-
-  // @ts-expect-error Bun's reader type differs slightly from standard
-  inputReader = reader;
-  return selectedDevice;
+    throw err;
+  }
 }
 
-/** Currently open MIDI input, or null when capture is stopped */
 export function getInputDevice(): string | null {
   return inputDevice;
 }
 
 export async function stopCapture(): Promise<void> {
-  captureActive = false;
+  if (activeInput) {
+    try {
+      await activeInput.closeInput();
+    } catch {}
+    activeInput = null;
+  }
   inputDevice = null;
-
-  if (jzzInput) {
-    try {
-      jzzInput.close();
-    } catch {}
-    jzzInput = null;
-  }
-
-  if (inputReader) {
-    try {
-      inputReader.releaseLock();
-    } catch {}
-    inputReader = null;
-  }
 }
 
 // ===========================================
 // Output
 // ===========================================
 
-export async function openOutput(devicePath?: string): Promise<string> {
-  if (isMacOS) {
-    return openOutputMacOS(devicePath);
-  } else {
-    return openOutputLinux(devicePath);
+export async function openOutput(id?: string): Promise<string> {
+  if (activeOutput) {
+    try {
+      await activeOutput.closeOutput();
+    } catch {}
+    activeOutput = null;
   }
+
+  // Default the output scheme to whatever the input is using, so a plain device
+  // name picked in the UI opens on the same backend.
+  const fallbackScheme = activeInput?.scheme ?? platformDefault();
+  const parsed = parseAddress(id, knownSchemes);
+  const scheme = parsed.scheme ?? (id && knownSchemes.includes(id) ? id : fallbackScheme);
+  const rest = parsed.scheme ? parsed.rest : id && knownSchemes.includes(id) ? undefined : id;
+
+  const transport = getTransport(scheme);
+  const name = await transport.openOutput(rest);
+  activeOutput = transport;
+  outputDevice = name;
+  return name;
 }
-
-async function openOutputMacOS(deviceName?: string): Promise<string> {
-  const jzz = await getJZZ();
-  if (!jzz) {
-    throw new Error("JZZ not available");
-  }
-
-  const engine = await jzz();
-  const info = engine.info();
-
-  if (info.outputs.length === 0) {
-    throw new Error("No MIDI output devices found");
-  }
-
-  let selectedName = info.outputs[0].name;
-  if (deviceName) {
-    const found = info.outputs.find((o: { name: string }) => o.name === deviceName);
-    if (found) {
-      selectedName = found.name;
-    }
-  }
-
-  console.log(`Opening CoreMIDI output: ${selectedName}`);
-  const port = await engine.openMidiOut(selectedName);
-
-  jzzOutput = port;
-  outputDevice = selectedName;
-
-  return selectedName;
-}
-
-async function openOutputLinux(devicePath?: string): Promise<string> {
-  const devices = await listOutputs();
-
-  if (devices.length === 0) {
-    throw new Error("No MIDI output devices found");
-  }
-
-  const selected = devicePath ?? devices[0] ?? "";
-  if (!selected) {
-    throw new Error("No MIDI output devices found");
-  }
-
-  // Probe writability up front so a permission problem surfaces here, with a
-  // useful message, instead of silently dropping every note later.
-  // 0xFE is Active Sensing - synths ignore it.
-  try {
-    await Bun.write(selected, new Uint8Array([0xfe]));
-  } catch (err: any) {
-    throw new Error(
-      `Cannot write to MIDI output ${selected}: ${err?.message ?? err}. ` +
-        `Check that the user running midibox is in the 'audio' group and that ` +
-        `nothing else holds the device open.`
-    );
-  }
-
-  outputDevice = selected;
-  console.log(`Opening raw MIDI output: ${outputDevice}`);
-
-  return selected;
-}
-
-// Rate limit for output write errors, so a stuck device can't flood the log
-let lastOutputError = 0;
 
 export function sendMidiMessage(data: number[]): void {
-  if (isMacOS) {
-    if (!jzzOutput) {
-      throw new Error("MIDI output not open");
-    }
-    jzzOutput.send(data);
-  } else {
-    if (!outputDevice) {
-      throw new Error("MIDI output not open");
-    }
-    // Bun.write() is async - report failures instead of letting them become
-    // unhandled rejections, which is how a broken output looked like silence.
-    const device = outputDevice;
-    Bun.write(device, new Uint8Array(data)).catch((err: any) => {
-      const now = Date.now();
-      if (now - lastOutputError > 5000) {
-        lastOutputError = now;
-        console.error(`MIDI output write to ${device} failed: ${err?.message ?? err}`);
-      }
-    });
-  }
+  if (!activeOutput) throw new Error("MIDI output not open");
+  activeOutput.send(data);
 }
 
 export function playEvent(event: MidiEvent): void {
-  if (isMacOS && !jzzOutput) return;
-  if (!isMacOS && !outputDevice) return;
+  if (!activeOutput) return;
 
   const channel = event.channel & 0x0f;
   let data: number[] = [];
@@ -495,81 +259,17 @@ export function playEvent(event: MidiEvent): void {
       return;
   }
 
-  sendMidiMessage(data);
+  activeOutput.send(data);
 }
 
 export async function closeOutput(): Promise<void> {
-  if (jzzOutput) {
+  if (activeOutput) {
     try {
-      jzzOutput.close();
+      await activeOutput.closeOutput();
     } catch {}
-    jzzOutput = null;
+    activeOutput = null;
   }
   outputDevice = null;
-}
-
-// ===========================================
-// MIDI Thru (forward input to output)
-// ===========================================
-
-export async function enableThru(outputName?: string): Promise<string> {
-  if (isMacOS) {
-    const jzz = await getJZZ();
-    if (!jzz) {
-      throw new Error("JZZ not available");
-    }
-
-    const engine = await jzz();
-    const info = engine.info();
-
-    if (info.outputs.length === 0) {
-      throw new Error("No MIDI output devices found");
-    }
-
-    let selectedName = info.outputs[0].name;
-    if (outputName) {
-      const found = info.outputs.find((o: { name: string }) => o.name === outputName);
-      if (found) {
-        selectedName = found.name;
-      }
-    }
-
-    console.log(`Enabling MIDI thru to: ${selectedName}`);
-    thruOutput = await engine.openMidiOut(selectedName);
-    thruOutputDevice = selectedName;
-    thruEnabled = true;
-
-    return selectedName;
-  } else {
-    // Linux
-    const devices = await listOutputs();
-    if (devices.length === 0) {
-      throw new Error("No MIDI output devices found");
-    }
-
-    const selected = outputName ?? devices[0] ?? "";
-    thruOutputDevice = selected;
-    thruEnabled = true;
-    console.log(`Enabling MIDI thru to: ${selected}`);
-
-    return selected;
-  }
-}
-
-export async function disableThru(): Promise<void> {
-  thruEnabled = false;
-  if (thruOutput) {
-    try {
-      thruOutput.close();
-    } catch {}
-    thruOutput = null;
-  }
-  thruOutputDevice = null;
-  console.log("MIDI thru disabled");
-}
-
-export function isThruEnabled(): boolean {
-  return thruEnabled;
 }
 
 /** Currently open MIDI output, or null when nothing is connected */
@@ -577,21 +277,45 @@ export function getOutputDevice(): string | null {
   return outputDevice;
 }
 
-export function getThruOutput(): string | null {
-  return thruOutputDevice;
+// ===========================================
+// MIDI Thru (forward input to output on its own instance)
+// ===========================================
+
+export async function enableThru(id?: string): Promise<string> {
+  await disableThru();
+
+  const fallbackScheme = activeInput?.scheme ?? platformDefault();
+  const parsed = parseAddress(id, knownSchemes);
+  const scheme = parsed.scheme ?? (id && knownSchemes.includes(id) ? id : fallbackScheme);
+  const rest = parsed.scheme ? parsed.rest : id && knownSchemes.includes(id) ? undefined : id;
+
+  // Fresh instance so thru never shares the playback output handle.
+  const transport = registry[scheme]?.();
+  if (!transport) throw new Error(`Unknown MIDI transport: ${scheme}`);
+
+  const name = await transport.openOutput(rest);
+  thruTransport = transport;
+  thruOutputDevice = name;
+  thruEnabled = true;
+  console.log(`Enabling MIDI thru to: ${name}`);
+  return name;
 }
 
-// Forward a MIDI event through thru if enabled
-function forwardThru(data: number[]): void {
-  if (!thruEnabled) return;
-
-  if (isMacOS) {
-    if (thruOutput) {
-      thruOutput.send(data);
-    }
-  } else {
-    if (thruOutputDevice) {
-      Bun.write(thruOutputDevice, new Uint8Array(data));
-    }
+export async function disableThru(): Promise<void> {
+  thruEnabled = false;
+  if (thruTransport) {
+    try {
+      await thruTransport.closeOutput();
+    } catch {}
+    thruTransport = null;
   }
+  thruOutputDevice = null;
+}
+
+export function isThruEnabled(): boolean {
+  return thruEnabled;
+}
+
+export function getThruOutput(): string | null {
+  return thruOutputDevice;
 }

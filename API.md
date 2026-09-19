@@ -80,12 +80,19 @@ curl -X POST localhost:4000/api/sessions -H 'content-type: application/json' \
 
 | Method | Path | Result |
 | ------ | ---- | ------ |
-| `GET` | `/api/midi/inputs` | Device names (Linux: `/dev/snd/...` paths) |
-| `GET` | `/api/midi/outputs` | Same list on Linux; CoreMIDI names on macOS |
+| `GET` | `/api/midi/transports` | `{schemes, default, input, output}` — available transports and which are active |
+| `GET` | `/api/midi/inputs` | Names for the active/default transport's scheme |
+| `GET` | `/api/midi/outputs` | Names for the active/default transport's scheme |
 | `GET` | `/api/midi/input` | `{input}` — device now recording, `null` when stopped |
 | `POST` | `/api/midi/input` | `{input}` — switch recording device (stop + start) |
 | `POST` | `/api/midi/start` | `{input?}` — (re)start capture |
 | `POST` | `/api/midi/stop` | Stop capture |
+
+Device ids may be **scheme-qualified** — `seq:USB Keyboard MIDI 1`,
+`rawalsa:/dev/snd/midiC1D0`, `rtpm:225.0.0.37:21928`, `rtp:host:5004` — or a bare
+name, which uses the platform default scheme (`seq` on Linux, `coremidi` on
+macOS). `MIDIBOX_MIDI` overrides the default; on Linux `seq` auto-falls back to
+`rawalsa` when no sequencer port is available.
 
 ### Output connection
 

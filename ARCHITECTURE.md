@@ -4,8 +4,8 @@ A single Bun process. It reads a MIDI device, writes every event to SQLite,
 and serves the UI. No build step, no framework, no external database.
 
 ```
-MIDI keyboard
-     │  /dev/snd/midiC0D0 (Linux)  ·  CoreMIDI via JZZ (macOS)
+MIDI keyboard / network
+     │  ALSA seq · raw /dev/snd · CoreMIDI · RTP-MIDI  (src/transports/*)
      ▼
   src/midi.ts ──────► src/db.ts ──────► midibox.db
      │  parsed events        insert
@@ -23,7 +23,8 @@ MIDI keyboard
 | ---- | ---------------- |
 | `index.ts` | Entry point; re-exports the server |
 | `src/server.ts` | HTTP routes, WebSocket, playback scheduling |
-| `src/midi.ts` | Device discovery, capture, thru, output |
+| `src/midi.ts` | Transport coordinator: selection, capture pipeline, thru, output |
+| `src/transports/` | One file per MIDI transport behind a shared interface |
 | `src/db.ts` | Schema, migrations, queries, history aggregation |
 | `src/midi-file.ts` | Standard MIDI file parser (format 0 and 1) |
 | `src/tui.ts` | Terminal client; talks to the same WebSocket |
@@ -52,26 +53,37 @@ editing its bounds re-interprets whatever was recorded then.
 
 Migrations run at startup in `src/db.ts`, guarded so they are safe to re-run.
 
-## Capture
+## Transports
 
-**Linux** spawns `cat /dev/snd/midiC0D0` and parses the byte stream, handling
-running status and variable message lengths. **macOS** opens a CoreMIDI port
-through JZZ. Either way each message becomes an event that is written to SQLite
-and handed to listeners; the server broadcasts it to every WebSocket client.
+Device I/O lives behind a small `MidiTransport` interface
+(`src/transports/types.ts`): `listInputs/Outputs`, `openInput/openOutput`,
+`send`, `closeInput/closeOutput`. `src/midi.ts` is the coordinator — it picks a
+transport by address **scheme** and funnels every captured message through one
+pipeline (thru → parse → store → broadcast), so `server.ts` and the UI never
+learn which backend is in use.
 
-Raw MIDI devices allow one reader; a second process opening the same device for
-input will fail while MidiBox holds it.
+| Scheme | Backend | Notes |
+| ------ | ------- | ----- |
+| `seq` | ALSA seq / CoreMIDI / WinMM via RtMidi (`@julusian/midi`) | **Linux default.** Ports addressed by stable name, resolved to the current index at open time; a PipeWire graph can share the port |
+| `rawalsa` | Raw `/dev/snd/midiC*D*` (`cat` in, `Bun.write` out) | The original path; single-reader, index-addressed. Auto-fallback on Linux |
+| `coremidi` | CoreMIDI via JZZ | **macOS default** |
+| `rtp` / `rtpm` | RTP-MIDI over UDP (`node:dgram`) | Unicast / multicast; interops with qmidinet/multimidicast |
 
-## Output
+An address is `<scheme>:<rest>` (`seq:USB Keyboard MIDI 1`,
+`rtpm:225.0.0.37:21928`); a bare id uses the platform default scheme. The
+default is chosen per OS and overridable with `MIDIBOX_MIDI`. On Linux, if the
+default `seq` transport finds no ports or fails to open, capture **auto-falls
+back to `rawalsa`** (unless a scheme was pinned explicitly).
 
-One output device at a time, opened explicitly (`POST /api/midi/output`) rather
-than as a side effect of playing something. On Linux, sending is a `Bun.write()`
-to the device path; failures are caught and logged rather than left as unhandled
-rejections. Opening probes the device first with an Active Sensing byte (`0xFE`),
-which synths ignore, so permission problems surface at connect time.
+Each scheme has one cached instance holding an input and an output handle
+independently. **Thru** gets its own fresh instance so it never fights the
+playback output for the single output handle; when enabled, incoming bytes are
+forwarded before parsing.
 
-**Thru** is separate: when enabled, incoming bytes are forwarded to the output
-as they arrive, before parsing.
+Opening a `rawalsa` output probes the device first with an Active Sensing byte
+(`0xFE`), which synths ignore, so permission problems surface at connect time.
+One output device is open at a time, opened explicitly (`POST /api/midi/output`)
+rather than as a side effect of playing something.
 
 ## Playback
 

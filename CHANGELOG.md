@@ -16,6 +16,15 @@ Two things need attention on an existing install:
 
 ### Added
 
+- **Pluggable MIDI transports** — device I/O now sits behind a transport
+  interface selected by an address scheme. Linux defaults to the ALSA sequencer
+  by name (`seq`, via `@julusian/midi`/RtMidi), which is PipeWire-shareable and
+  immune to `/dev/snd` index churn, and auto-falls back to the raw device
+  (`rawalsa`) when no sequencer port exists. Adds **RTP-MIDI** over UDP
+  (`rtpm:` multicast, `rtp:` unicast; interops with qmidinet). Choose with
+  `MIDIBOX_MIDI`; `GET /api/midi/transports` reports what's available.
+- **Input device picker** — a dropdown beside the recording status switches the
+  capture device (and folds in Refresh); playback defaults to a matching output.
 - **History tab** — recorded activity by date, each day split into stretches of
   continuous playing with sparklines, pitch range and note counts. Preview a
   stretch as a piano roll, play it back, or save it as a session.
