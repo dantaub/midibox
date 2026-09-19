@@ -225,9 +225,11 @@ const timeline = {
     // Direction: false = time runs downward, true = upward
     flipped: false,
 
-    // Live update rate: a note length (in beats) at a tempo
+    // Live update rate: a note length (in beats) at a tempo, or a free-running
+    // 60Hz redraw when `smooth` is on
     tempo: 120,
     rateBeats: 1,
+    smooth: false,
 
     // Data cache
     events: [],
@@ -313,13 +315,20 @@ function resizeCanvas() {
 }
 
 // Save/restore timeline view state from localStorage
+let lastSavedView = null
+
 function saveTimelineView() {
-    const state = {
+    const state = JSON.stringify({
         duration: timeline.duration,
         startTime: timeline.startTime
-    }
-    console.log('[Timeline] Saving state:', JSON.stringify(state))
-    localStorage.setItem('midibox-timeline-view', JSON.stringify(state))
+    })
+
+    // Called on every redraw, so don't write what's already stored
+    if (state === lastSavedView) return
+    lastSavedView = state
+
+    console.log('[Timeline] Saving state:', state)
+    localStorage.setItem('midibox-timeline-view', state)
 }
 
 function loadSavedTimelineView() {
@@ -1216,6 +1225,42 @@ function loadLiveRate() {
     updateTempoReadout()
 }
 
+const btnSmooth = $('timelineSmooth')
+let smoothFrameId = null
+
+function smoothFrame() {
+    smoothFrameId = requestAnimationFrame(smoothFrame)
+    if (!isLive()) return
+    updateTimeLabels()
+    drawTimeline()
+}
+
+// 60Hz redraw (whatever the display runs at) instead of stepping on the note
+function setSmooth(on) {
+    timeline.smooth = on
+    btnSmooth.classList.toggle('active', on)
+    btnSmooth.title = on
+        ? 'Redrawing continuously - click to step on the note again'
+        : 'Redraw continuously at 60 Hz instead of on the note'
+
+    // The note length and tempo have no effect while this runs
+    timelineRate.disabled = on
+    timelineTempo.disabled = on
+    localStorage.setItem('midibox-smooth', on ? '1' : '0')
+
+    if (on) {
+        clearTimeout(liveTickTimer)
+        liveTickTimer = null
+        if (smoothFrameId == null) smoothFrameId = requestAnimationFrame(smoothFrame)
+    } else {
+        if (smoothFrameId != null) cancelAnimationFrame(smoothFrameId)
+        smoothFrameId = null
+        scheduleLiveTick()
+    }
+}
+
+btnSmooth.addEventListener('click', () => setSmooth(!timeline.smooth))
+
 timelineRate.addEventListener('change', () => {
     timeline.rateBeats = parseFloat(timelineRate.value)
     saveLiveRate()
@@ -1248,10 +1293,12 @@ function liveTick() {
 
 function scheduleLiveTick() {
     clearTimeout(liveTickTimer)
+    if (timeline.smooth) return  // the animation frame loop is driving instead
     liveTickTimer = setTimeout(liveTick, liveIntervalMs())
 }
 
 loadLiveRate()
+setSmooth(localStorage.getItem('midibox-smooth') === '1')
 scheduleLiveTick()
 
 // ===========================================

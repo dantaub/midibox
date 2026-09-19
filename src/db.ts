@@ -32,6 +32,30 @@ db.run(`
   CREATE INDEX IF NOT EXISTS idx_midi_events_timestamp ON midi_events(timestamp)
 `);
 
+// ---------------------------------------------------------------
+// Clean up the bank tagging experiment: drop the columns, the index
+// they were on, and the settings table that only held the active bank.
+// Guarded so it runs at most once per database.
+// ---------------------------------------------------------------
+function hasColumn(table: string, column: string): boolean {
+  const cols = db.query(`PRAGMA table_info(${table})`).all() as { name: string }[];
+  return cols.some((c) => c.name === column);
+}
+
+if (hasColumn("midi_events", "bank")) {
+  console.log("Dropping unused midi_events.bank column...");
+  // A column can't be dropped while an index references it
+  db.run(`DROP INDEX IF EXISTS idx_midi_events_bank`);
+  db.run(`ALTER TABLE midi_events DROP COLUMN bank`);
+}
+
+if (hasColumn("sessions", "bank")) {
+  console.log("Dropping unused sessions.bank column...");
+  db.run(`ALTER TABLE sessions DROP COLUMN bank`);
+}
+
+db.run(`DROP TABLE IF EXISTS settings`);
+
 // Prepared statements for performance
 const insertEvent = db.prepare(`
   INSERT INTO midi_events (timestamp, channel, type, note, velocity, control, value, data)

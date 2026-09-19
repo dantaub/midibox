@@ -1262,3 +1262,31 @@ select {
 	color: #888;
 	min-width: 62px;
 }
+
+/* 60Hz redraw toggle, beside the tempo */
+.btn-smooth {
+	padding: 0.3rem 0.5rem;
+	font-size: 0.7rem;
+	border: none;
+	border-radius: 3px;
+	background: #1a1a2e;
+	color: #888;
+	cursor: pointer;
+}
+
+.btn-smooth:hover {
+	background: #252550;
+	color: #fff;
+}
+
+.btn-smooth.active {
+	background: #2a3a5a;
+	color: #9ec5fe;
+}
+
+/* The note rate is inert while the 60Hz redraw is running */
+.timeline-controls select:disabled,
+.tempo-slider:disabled {
+	opacity: 0.4;
+	cursor: not-allowed;
+}

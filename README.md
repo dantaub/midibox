@@ -25,8 +25,8 @@ Perfect for musicians who want to capture spontaneous practice moments without r
     while pitch runs across, lined up with the keys above
   - A **Live** toggle under the timeline follows the present, stepping the view
     forward at a note length (1/1 down to 1/16, dotted and triplet) against a
-    40-220 BPM slider; switching it off freezes the view and swaps those
-    controls for pan, zoom and the selection tools
+    40-220 BPM slider, or continuously at 60 Hz; switching it off freezes the
+    view and swaps those controls for pan, zoom and the selection tools
   - **History** - recorded activity grouped by date, split into stretches of
     playing, with sparklines, per-stretch playback, and save-as-session
   - Event log as a draggable floating window, toggled from the header
