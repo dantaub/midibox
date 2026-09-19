@@ -153,7 +153,7 @@ Connect to `ws://<host>:4000/ws`. Messages are JSON objects tagged by `type`.
 | ---- | ------- | ---- |
 | `midi` | `{event}` | A MIDI event was captured — this is the live feed |
 | `playback` | `{status: "started"\|"ended", totalEvents, duration}` | Playback boundaries |
-| `playback-event` | `{event, progress, eventIndex, totalEvents}` | Each event as it plays |
+| `playback-event` | `{event, progress, eventIndex, totalEvents, serverTime}` | Each event as it plays; `serverTime` is the server send clock, for measuring transport latency |
 | `output` | `{output}` | The output was connected or disconnected |
 | `input` | `{input}` | The recording input device changed |
 | `pong` | — | Reply to `ping` |

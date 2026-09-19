@@ -25,6 +25,12 @@ Two things need attention on an existing install:
   `MIDIBOX_MIDI`; `GET /api/midi/transports` reports what's available.
 - **Input device picker** — a dropdown beside the recording status switches the
   capture device (and folds in Refresh); playback defaults to a matching output.
+- **Tighter playback timing** — the scheduler now sends all MIDI due at a
+  wake-up back-to-back before any WebSocket work, so a chord's notes go out
+  together instead of on separate timer ticks with broadcast serialization
+  wedged between them. Scheduling lateness is logged per playback (avg/max),
+  with `MIDIBOX_PLAYBACK_DEBUG=1` for per-batch detail. `scripts/midi-timing.ts`
+  (`bun run midi:timing`) measures capture-side chord spread.
 - **History tab** — recorded activity by date, each day split into stretches of
   continuous playing with sparklines, pitch range and note counts. Preview a
   stretch as a piano roll, play it back, or save it as a session.

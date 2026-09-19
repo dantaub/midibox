@@ -342,72 +342,161 @@ function stopPlayback(): void {
   }
 }
 
-// Event playback with timing and WebSocket broadcast
+// Events whose scheduled time is within this window of "now" are sent as one
+// burst, so a chord's notes go out back-to-back on one wake-up instead of on
+// separate timer ticks. Kept small so it groups near-coincident events without
+// quantizing the performance's micro-timing.
+const PLAYBACK_BATCH_EPSILON_MS = 2;
+const PLAYBACK_DEBUG = !!process.env.MIDIBOX_PLAYBACK_DEBUG;
+
+// setTimeout that rejects when playback is stopped. The abort listener is
+// removed on normal wake-up so one doesn't accumulate per batch.
+function abortableSleep(ms: number): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const signal = playbackAbortController?.signal;
+    let timeout: ReturnType<typeof setTimeout>;
+    const onAbort = () => {
+      clearTimeout(timeout);
+      reject(new Error("Playback stopped"));
+    };
+    timeout = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+// Core scheduler shared by recorded-range and MIDI-file playback. Audio timing
+// is the priority: all MIDI due at a wake-up is emitted back-to-back BEFORE any
+// WebSocket work, so serialization never sits between two note sends. The
+// WebSocket feed is visual-only and tolerant to tens of ms.
+async function runTimedPlayback<T>(
+  items: T[],
+  offsetMs: (item: T) => number,
+  emit: (item: T) => void,
+  payload: (item: T, index: number) => string,
+  clients: Set<ServerWebSocket<unknown>>
+): Promise<void> {
+  const playbackStart = Date.now();
+  const lateness: number[] = [];
+  let batches = 0;
+  let i = 0;
+
+  try {
+    while (i < items.length && playbackActive) {
+      const target = playbackStart + offsetMs(items[i]!);
+      const wait = target - Date.now();
+      if (wait > 0) await abortableSleep(wait);
+      if (!playbackActive) break;
+
+      // Drain everything now due (plus a small look-ahead) into one batch.
+      const now = Date.now();
+      const start = i;
+      while (i < items.length && playbackStart + offsetMs(items[i]!) <= now + PLAYBACK_BATCH_EPSILON_MS) {
+        i++;
+      }
+
+      // Audio first.
+      for (let k = start; k < i; k++) emit(items[k]!);
+
+      const late = Date.now() - target;
+      lateness.push(late);
+      batches++;
+      if (PLAYBACK_DEBUG) {
+        console.log(`[playback] batch ${batches}: ${i - start} event(s), ${late.toFixed(1)} ms late`);
+      }
+
+      // Visual second.
+      for (let k = start; k < i; k++) {
+        const msg = payload(items[k]!, k);
+        for (const ws of clients) ws.send(msg);
+      }
+    }
+  } catch {
+    // Playback was stopped (abortableSleep rejected) or an emit failed.
+  }
+
+  if (lateness.length) {
+    const avg = lateness.reduce((s, x) => s + x, 0) / lateness.length;
+    const max = Math.max(...lateness);
+    console.log(
+      `[playback] done: ${items.length} events in ${batches} batches; ` +
+        `scheduling lateness avg ${avg.toFixed(1)} ms, max ${max.toFixed(1)} ms`
+    );
+  }
+}
+
+function broadcastPlaybackStart(
+  clients: Set<ServerWebSocket<unknown>>,
+  totalEvents: number,
+  duration: number
+): void {
+  const msg = JSON.stringify({ type: "playback", status: "started", totalEvents, duration });
+  for (const ws of clients) ws.send(msg);
+}
+
+function broadcastPlaybackEnd(clients: Set<ServerWebSocket<unknown>>): void {
+  const msg = JSON.stringify({ type: "playback", status: "ended" });
+  for (const ws of clients) ws.send(msg);
+}
+
+// Playback of a recorded range at its original timing.
 async function playbackEvents(events: MidiEvent[], clients: Set<ServerWebSocket<unknown>>): Promise<void> {
   if (events.length === 0) return;
 
-  stopPlayback(); // Stop any existing playback
+  stopPlayback();
   playbackActive = true;
   playbackAbortController = new AbortController();
 
-  const startTime = events[0].timestamp;
-  const endTime = events[events.length - 1].timestamp;
-  const totalDuration = endTime - startTime;
-  const playbackStart = Date.now();
+  const startTime = events[0]!.timestamp;
+  const totalDuration = events[events.length - 1]!.timestamp - startTime;
 
-  // Notify clients playback started
-  const startMsg = JSON.stringify({ 
-    type: "playback", 
-    status: "started", 
-    totalEvents: events.length,
-    duration: totalDuration 
-  });
-  for (const ws of clients) ws.send(startMsg);
+  broadcastPlaybackStart(clients, events.length, totalDuration);
 
-  try {
-    for (let i = 0; i < events.length && playbackActive; i++) {
-      const event = events[i];
-      const targetTime = playbackStart + (event.timestamp - startTime);
-      const delay = targetTime - Date.now();
-
-      if (delay > 0) {
-        await new Promise((resolve, reject) => {
-          const timeout = setTimeout(resolve, delay);
-          playbackAbortController?.signal.addEventListener('abort', () => {
-            clearTimeout(timeout);
-            reject(new Error('Playback stopped'));
-          });
-        });
-      }
-
-      if (!playbackActive) break;
-
-      // Send MIDI to output device
-      playEvent(event);
-
-      // Broadcast to WebSocket clients for visualization
-      const progress = totalDuration > 0 ? (event.timestamp - startTime) / totalDuration : 1;
-      const msg = JSON.stringify({ 
-        type: "playback-event", 
-        event,
-        progress,
-        eventIndex: i,
-        totalEvents: events.length
-      });
-      for (const ws of clients) ws.send(msg);
-    }
-  } catch (e) {
-    // Playback was stopped
-  }
+  await runTimedPlayback(
+    events,
+    (e) => e.timestamp - startTime,
+    (e) => playEvent(e),
+    (e, index) =>
+      JSON.stringify({
+        type: "playback-event",
+        event: e,
+        progress: totalDuration > 0 ? (e.timestamp - startTime) / totalDuration : 1,
+        eventIndex: index,
+        totalEvents: events.length,
+        serverTime: Date.now(),
+      }),
+    clients
+  );
 
   playbackActive = false;
-  
-  // Notify clients playback ended
-  const endMsg = JSON.stringify({ type: "playback", status: "ended" });
-  for (const ws of clients) ws.send(endMsg);
+  broadcastPlaybackEnd(clients);
 }
 
-// MIDI file playback with timing
+// Translate one parsed MIDI-file event into a wire message and send it.
+function emitFileEvent(event: MidiFileEvent): void {
+  const channel = event.channel & 0x0f;
+  switch (event.type) {
+    case "noteon":
+      sendMidiMessage([0x90 | channel, event.note!, event.velocity!]);
+      break;
+    case "noteoff":
+      sendMidiMessage([0x80 | channel, event.note!, event.velocity || 0]);
+      break;
+    case "cc":
+      sendMidiMessage([0xb0 | channel, event.control!, event.value!]);
+      break;
+    case "pitchbend":
+      sendMidiMessage([0xe0 | channel, event.value! & 0x7f, (event.value! >> 7) & 0x7f]);
+      break;
+    case "program":
+      sendMidiMessage([0xc0 | channel, event.value!]);
+      break;
+  }
+}
+
+// Playback of a parsed MIDI file (offsets are ms from the start).
 async function playbackMidiFile(events: MidiFileEvent[], clients: Set<ServerWebSocket<unknown>>): Promise<void> {
   if (events.length === 0) return;
 
@@ -415,84 +504,36 @@ async function playbackMidiFile(events: MidiFileEvent[], clients: Set<ServerWebS
   playbackActive = true;
   playbackAbortController = new AbortController();
 
-  const totalDuration = events[events.length - 1].timeMs;
-  const playbackStart = Date.now();
+  const totalDuration = events[events.length - 1]!.timeMs;
 
-  // Notify clients playback started
-  const startMsg = JSON.stringify({ 
-    type: "playback", 
-    status: "started", 
-    totalEvents: events.length,
-    duration: totalDuration 
-  });
-  for (const ws of clients) ws.send(startMsg);
+  broadcastPlaybackStart(clients, events.length, totalDuration);
 
-  try {
-    for (let i = 0; i < events.length && playbackActive; i++) {
-      const event = events[i];
-      const targetTime = playbackStart + event.timeMs;
-      const delay = targetTime - Date.now();
-
-      if (delay > 0) {
-        await new Promise((resolve, reject) => {
-          const timeout = setTimeout(resolve, delay);
-          playbackAbortController?.signal.addEventListener('abort', () => {
-            clearTimeout(timeout);
-            reject(new Error('Playback stopped'));
-          });
-        });
-      }
-
-      if (!playbackActive) break;
-
-      // Send MIDI to output device
-      const channel = event.channel & 0x0f;
-      switch (event.type) {
-        case "noteon":
-          sendMidiMessage([0x90 | channel, event.note!, event.velocity!]);
-          break;
-        case "noteoff":
-          sendMidiMessage([0x80 | channel, event.note!, event.velocity || 0]);
-          break;
-        case "cc":
-          sendMidiMessage([0xb0 | channel, event.control!, event.value!]);
-          break;
-        case "pitchbend":
-          sendMidiMessage([0xe0 | channel, event.value! & 0x7f, (event.value! >> 7) & 0x7f]);
-          break;
-        case "program":
-          sendMidiMessage([0xc0 | channel, event.value!]);
-          break;
-      }
-
-      // Broadcast to WebSocket clients for visualization
-      const progress = totalDuration > 0 ? event.timeMs / totalDuration : 1;
-      const msg = JSON.stringify({ 
-        type: "playback-event", 
+  await runTimedPlayback(
+    events,
+    (e) => e.timeMs,
+    emitFileEvent,
+    (e, index) =>
+      JSON.stringify({
+        type: "playback-event",
         event: {
           timestamp: Date.now(),
-          channel: event.channel,
-          type: event.type,
-          note: event.note,
-          velocity: event.velocity,
-          control: event.control,
-          value: event.value,
+          channel: e.channel,
+          type: e.type,
+          note: e.note,
+          velocity: e.velocity,
+          control: e.control,
+          value: e.value,
         },
-        progress,
-        eventIndex: i,
-        totalEvents: events.length
-      });
-      for (const ws of clients) ws.send(msg);
-    }
-  } catch (e) {
-    // Playback was stopped
-  }
+        progress: totalDuration > 0 ? e.timeMs / totalDuration : 1,
+        eventIndex: index,
+        totalEvents: events.length,
+        serverTime: Date.now(),
+      }),
+    clients
+  );
 
   playbackActive = false;
-  
-  // Notify clients playback ended
-  const endMsg = JSON.stringify({ type: "playback", status: "ended" });
-  for (const ws of clients) ws.send(endMsg);
+  broadcastPlaybackEnd(clients);
 }
 
 function json(data: any, status = 200): Response {

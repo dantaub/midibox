@@ -87,11 +87,26 @@ rather than as a side effect of playing something.
 
 ## Playback
 
-`playbackEvents()` walks the range and `await`s until each event's offset from
-the first one, then sends it to the device and broadcasts a `playback-event`.
+`runTimedPlayback()` is the shared scheduler. It sleeps until the next event's
+offset, then **drains every event now due** (plus a 2 ms look-ahead) into one
+batch. Audio timing is the priority, so the whole batch is sent to the MIDI
+device **before** any WebSocket work — serialization never sits between two note
+sends, and a chord's notes go out back-to-back on one wake-up instead of on
+separate timer ticks. The WebSocket `playback-event` feed is visual-only and
+tolerant to tens of ms, so it follows the audio. Sleeping recomputes against
+absolute time, so lateness never accumulates; an `AbortController` makes stop
+immediate. `playbackEvents()` (recorded range) and `playbackMidiFile()` (parsed
+file, ms offsets) both drive this scheduler.
+
+Scheduling accuracy is logged at the end of each playback — average and max
+lateness across batches — and `MIDIBOX_PLAYBACK_DEBUG=1` adds a per-batch line.
+On a quiet event loop this runs well under a millisecond of jitter. (`setTimeout`
+in a single JS thread is the floor here; a worker thread with a high-res clock
+would be the next step if that ever isn't tight enough.)
+
 The browser doesn't schedule anything itself — it calibrates its playhead from
-the timestamps the server sends, so the line on screen tracks what the
-keyboard is actually playing. An `AbortController` makes stop immediate.
+the timestamps the server sends, so the line on screen tracks what the device is
+actually playing.
 
 MIDI files take a parallel path: parsed to a flat event list with millisecond
 offsets (tempo changes applied during the merge), then played the same way. All

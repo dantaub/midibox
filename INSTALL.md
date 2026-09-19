@@ -128,6 +128,7 @@ Everything is optional; the defaults work.
 | `bun` path | `command -v bun` | `ExecStart=` in the unit, `MIDIBOX_BUN` in `/etc/conf.d/midibox` |
 | Database file | `midibox.db` in the working directory | `MIDIBOX_DB=/path/to/file`, or symlink it |
 | MIDI transport | `seq` (Linux), `coremidi` (macOS) | `MIDIBOX_MIDI` — a scheme or a full address |
+| Playback debug | off | `MIDIBOX_PLAYBACK_DEBUG=1` — log per-batch scheduling lateness during playback |
 
 ### MIDI transports
 
