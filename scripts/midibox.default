@@ -1,0 +1,4 @@
+# MidiBox environment (systemd reads this as /etc/default/midibox)
+
+# Port for the HTTP/WebSocket server
+#MIDIBOX_PORT=4000

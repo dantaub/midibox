@@ -33,7 +33,7 @@ Perfect for musicians who want to capture spontaneous practice moments without r
   - MIDI file upload and playback
   - Playback progress bar with green key highlighting
 - **TUI client** for HDMI-connected displays (connects via WebSocket)
-- **OpenRC service scripts** for Alpine Linux deployment
+- **Service scripts** for systemd and OpenRC (Alpine) deployment
 - **WebSocket streaming** for real-time updates to all connected clients
 
 ### 🚧 Planned Features
@@ -85,16 +85,41 @@ The bank tag is an added, nullable column on `midi_events` and `sessions`: older
 databases are migrated in place on startup, rows recorded before banks existed
 read as untagged, and clients that don't send a bank keep working unchanged.
 
-### Service Installation (Alpine Linux)
+### Service Installation
 
 ```bash
-# Copy service scripts
-sudo cp scripts/midibox /etc/init.d/
-sudo chmod +x /etc/init.d/midibox
+./scripts/install-service.sh
+```
 
-# Enable and start
-sudo rc-update add midibox default
+The installer detects the init system, fills in your install directory, user and
+`bun` path, adds the user to the `audio` group, and enables the service.
+
+**systemd** (most distros) installs `/etc/systemd/system/midibox.service`:
+
+```bash
+sudo systemctl restart midibox
+systemctl status midibox
+journalctl -u midibox -f        # logs
+```
+
+Settings live in `/etc/default/midibox` (e.g. `MIDIBOX_PORT=4000`).
+
+If you previously copied `scripts/midibox.initd` into `/etc/init.d/` on a systemd
+host, remove it — systemd wraps leftover SysV scripts with its deprecated
+compatibility generator, which is what logs *"lacks a native systemd unit file"*
+at boot and shadows the real unit:
+
+```bash
+sudo rm /etc/init.d/midibox
+sudo systemctl daemon-reload
+```
+
+**OpenRC** (Alpine) installs `/etc/init.d/midibox` with settings in
+`/etc/conf.d/midibox`:
+
+```bash
 sudo rc-service midibox start
+sudo rc-service midibox status  # logs: /var/log/midibox.log
 ```
 
 ## API Endpoints

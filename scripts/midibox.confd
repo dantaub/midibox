@@ -6,6 +6,9 @@ MIDIBOX_DIR="/home/tim/midibox"
 # User to run the service as (should be in 'audio' group)
 MIDIBOX_USER="tim"
 
+# Path to the bun binary
+MIDIBOX_BUN="/home/tim/.bun/bin/bun"
+
 # Port for HTTP/WebSocket server
 MIDIBOX_PORT="4000"
 

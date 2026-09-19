@@ -2,7 +2,7 @@ import { getRecent, getRange, createSession, listSessions, updateSessionById, de
 import { startCapture, stopCapture, listInputs, listOutputs, openOutput, onMidiEvent, playEvent, closeOutput, sendMidiMessage, enableThru, disableThru, isThruEnabled, getThruOutput } from "./midi";
 import { parseMidiFile, getPlayableEvents, type MidiFileEvent } from "./midi-file";
 
-const PORT = 4000;
+const PORT = Number(process.env.MIDIBOX_PORT ?? process.env.PORT ?? 4000) || 4000;
 
 // Track connected WebSocket clients for real-time updates
 const wsClients: Set<ServerWebSocket<unknown>> = new Set();

@@ -1,0 +1,35 @@
+[Unit]
+Description=MidiBox MIDI recording service
+Documentation=https://github.com/creationix/midibox
+After=network-online.target sound.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@MIDIBOX_USER@
+WorkingDirectory=@MIDIBOX_DIR@
+ExecStart=@MIDIBOX_BUN@ run index.ts
+EnvironmentFile=-/etc/default/midibox
+Restart=always
+RestartSec=5
+
+# MIDI devices in /dev/snd are owned by the audio group
+SupplementaryGroups=audio
+
+# Logs go to the journal: journalctl -u midibox -f
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=midibox
+
+# Light hardening. The service only writes to its own directory (the SQLite
+# database lives there), so the rest of the system can stay read-only.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+ReadWritePaths=@MIDIBOX_DIR@
+
+[Install]
+WantedBy=multi-user.target

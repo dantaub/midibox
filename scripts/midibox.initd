@@ -6,10 +6,13 @@ description="MidiBox MIDI recording service"
 # Configuration
 MIDIBOX_DIR="${MIDIBOX_DIR:-/home/tim/midibox}"
 MIDIBOX_USER="${MIDIBOX_USER:-tim}"
+MIDIBOX_BUN="${MIDIBOX_BUN:-/home/tim/.bun/bin/bun}"
 MIDIBOX_PORT="${MIDIBOX_PORT:-4000}"
 MIDIBOX_LOG="${MIDIBOX_LOG:-/var/log/midibox.log}"
 
-command="/home/tim/.bun/bin/bun"
+export MIDIBOX_PORT
+
+command="${MIDIBOX_BUN}"
 command_args="run index.ts"
 command_user="${MIDIBOX_USER}"
 directory="${MIDIBOX_DIR}"
