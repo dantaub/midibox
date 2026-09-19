@@ -1,5 +1,5 @@
 import { getRecent, getRange, createSession, listSessions, updateSessionById, deleteSessionById, getCurrentBank, setCurrentBank, getDaySummaries, getActivitySegments, getSessionsInRange, BANKS, type MidiEvent, type Session } from "./db";
-import { startCapture, stopCapture, listInputs, listOutputs, openOutput, onMidiEvent, playEvent, closeOutput, sendMidiMessage, enableThru, disableThru, isThruEnabled, getThruOutput } from "./midi";
+import { startCapture, stopCapture, listInputs, listOutputs, openOutput, onMidiEvent, playEvent, closeOutput, sendMidiMessage, enableThru, disableThru, isThruEnabled, getThruOutput, getOutputDevice } from "./midi";
 import { parseMidiFile, getPlayableEvents, type MidiFileEvent } from "./midi-file";
 
 const PORT = Number(process.env.MIDIBOX_PORT ?? process.env.PORT ?? 4000) || 4000;
@@ -193,6 +193,26 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
       return json({ status: "stopped" });
     }
 
+    // GET /api/midi/output - currently connected output
+    if (path === "/midi/output" && method === "GET") {
+      return json({ output: getOutputDevice() });
+    }
+
+    // POST /api/midi/output { output } - connect an output without playing
+    if (path === "/midi/output" && method === "POST") {
+      const body = await req.json().catch(() => ({}));
+      const output = await openOutput(body.output);
+      broadcast({ type: "output", output });
+      return json({ status: "connected", output });
+    }
+
+    // DELETE /api/midi/output - disconnect
+    if (path === "/midi/output" && method === "DELETE") {
+      await closeOutput();
+      broadcast({ type: "output", output: null });
+      return json({ status: "disconnected" });
+    }
+
     // GET /api/midi/thru - Get thru status
     if (path === "/midi/thru" && method === "GET") {
       return json({
@@ -222,6 +242,7 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
       // Open output if specified
       if (output) {
         await openOutput(output);
+        broadcast({ type: "output", output: getOutputDevice() });
       }
 
       // Get events and play them back (optionally only one bank's notes)

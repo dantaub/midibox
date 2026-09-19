@@ -136,6 +136,9 @@ sudo rc-service midibox status  # logs: /var/log/midibox.log
 | POST   | `/api/sessions`                        | Create a new session                       |
 | GET    | `/api/midi/inputs`                     | List MIDI input devices                    |
 | GET    | `/api/midi/outputs`                    | List MIDI output devices                   |
+| GET    | `/api/midi/output`                     | Currently connected output                 |
+| POST   | `/api/midi/output`                     | Connect an output (without playing)        |
+| DELETE | `/api/midi/output`                     | Disconnect the output                      |
 | POST   | `/api/playback/start`                  | Start session playback                     |
 | POST   | `/api/playback/stop`                   | Stop playback                              |
 | POST   | `/api/playback/file`                   | Upload and play MIDI file                  |

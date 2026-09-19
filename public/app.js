@@ -660,10 +660,44 @@ function updateSelectionUI() {
             } else {
                 $('timelinePlaySelection').disabled = true
             }
-        } else {
-            $('timelinePlaySelection').disabled = true
         }
     }
+
+    updatePlayButtons()
+}
+
+// True between playback start/end, whatever started it. Declared here because
+// the timeline draws (and reconciles the buttons) during startup.
+let playbackActive = false
+
+// The play buttons double as a "connect output" action when there is nothing
+// selected to play - otherwise the MIDI output would only ever open as a side
+// effect of playback, leaving click-to-play silent.
+function hasPlayableRange() {
+    return !!timeline.selection || timeline.selectedSessionId != null
+}
+
+function updatePlayButtons() {
+    const playable = hasPlayableRange()
+    const playBtn = $('timelinePlaySelection')
+
+    if (playable) {
+        btnPlayback.innerHTML = '&#x25B6; Play'
+        btnPlayback.title = 'Play the selected range'
+        playBtn.innerHTML = '&#x25B6;'
+        playBtn.title = 'Play selection (Space)'
+    } else {
+        btnPlayback.innerHTML = '&#x1F50C; Connect Out'
+        btnPlayback.title = 'Open the selected MIDI output so keys and playback can sound'
+        playBtn.innerHTML = '&#x1F50C;'
+        playBtn.title = 'Connect MIDI output'
+    }
+
+    // Both actions are unavailable mid-playback (including MIDI file playback,
+    // which doesn't drive the timeline animation)
+    const playing = timeline.isPlaying || playbackActive
+    btnPlayback.disabled = playing
+    playBtn.disabled = playing
 }
 
 function setSelection(startTime, endTime) {
@@ -1025,8 +1059,9 @@ $('timelinePlaySelection').addEventListener('click', async () => {
         }
     }
 
+    // Nothing to play - the button is "Connect Out" in this state
     if (playStart == null || playEnd == null) {
-        alert('Select a range or session first')
+        await connectOutput()
         return
     }
 
@@ -1047,7 +1082,7 @@ $('timelinePlaySelection').addEventListener('click', async () => {
         $('timelineStop').disabled = false
         $('timelinePlaySelection').disabled = true
 
-        await fetch('/api/playback/start', {
+        const res = await fetch('/api/playback/start', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -1056,6 +1091,15 @@ $('timelinePlaySelection').addEventListener('click', async () => {
                 output
             }),
         })
+
+        if (!res.ok) {
+            const info = await res.json().catch(() => ({}))
+            stopPlaybackAnimation()
+            $('timelineStop').disabled = true
+            updateSelectionUI()
+            drawTimeline()
+            alert(`Playback failed: ${info.error || res.status}`)
+        }
     } catch (err) {
         console.error('Playback failed:', err)
     }
@@ -1136,6 +1180,8 @@ function connect() {
                 handleMidiEvent(data.event)
             } else if (data.type === 'bank') {
                 applyBank(data.bank)
+            } else if (data.type === 'output') {
+                setOutputStatus(data.output)
             } else if (data.type === 'playback') {
                 handlePlaybackStatus(data)
             } else if (data.type === 'playback-event') {
@@ -1218,19 +1264,20 @@ function stopPlaybackAnimation() {
 
 function handlePlaybackStatus(data) {
     if (data.status === 'started') {
+        playbackActive = true
         progressContainer.classList.add('active')
         btnPlayback.disabled = true
         btnStop.disabled = false
         $('timelineStop').disabled = false
         $('timelinePlaySelection').disabled = true
     } else if (data.status === 'ended') {
+        playbackActive = false
         stopPlaybackAnimation()
         progressContainer.classList.remove('active')
         btnPlayback.disabled = false
         btnStop.disabled = true
         $('timelineStop').disabled = true
-        // Re-enable play if there's a selection or selected session
-        $('timelinePlaySelection').disabled = !timeline.selection && timeline.selectedSessionId == null
+        updatePlayButtons()
         clearPlaybackNotes()
         progressFill.style.width = '0%'
         progressText.textContent = 'Complete'
@@ -1461,9 +1508,67 @@ async function loadOutputs() {
     }
 }
 
-// Save output device when changed
+// ===========================================
+// MIDI Output Connection
+// ===========================================
+const outStatus = $('outStatus')
+const btnDisconnectOut = $('btnDisconnectOut')
+
+function setOutputStatus(device) {
+    outStatus.textContent = device ? device.split('/').pop() : 'No'
+    outStatus.classList.toggle('active', !!device)
+    btnDisconnectOut.classList.toggle('hidden', !device)
+}
+
+async function loadOutputStatus() {
+    try {
+        const res = await fetch('/api/midi/output')
+        const data = await res.json()
+        setOutputStatus(data.output)
+    } catch (err) {
+        console.error('Failed to load output status:', err)
+    }
+}
+
+// Open the selected output so click-to-play and playback can sound
+async function connectOutput() {
+    const output = outputSelect.value
+    if (!output) {
+        alert('No MIDI output available - plug in a device and hit Refresh')
+        return false
+    }
+
+    try {
+        const res = await fetch('/api/midi/output', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ output }),
+        })
+        const data = await res.json()
+        if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
+        setOutputStatus(data.output)
+        return true
+    } catch (err) {
+        console.error('Failed to connect output:', err)
+        setOutputStatus(null)
+        alert(`Could not connect MIDI output: ${err.message}`)
+        return false
+    }
+}
+
+btnDisconnectOut.addEventListener('click', async () => {
+    try {
+        await fetch('/api/midi/output', { method: 'DELETE' })
+        setOutputStatus(null)
+    } catch (err) {
+        console.error('Failed to disconnect output:', err)
+    }
+})
+
+// Save output device when changed, and follow it if already connected
 outputSelect.addEventListener('change', () => {
     saveSettings()
+    if (!btnDisconnectOut.classList.contains('hidden')) connectOutput()
 })
 
 // MIDI Thru
@@ -2065,7 +2170,8 @@ eventLogHeader.addEventListener('touchend', endLogDrag)
 // ===========================================
 connect()
 loadSessions()
-loadOutputs()
+loadOutputs().then(loadOutputStatus)
 loadThruStatus()
 loadBank()
 loadEventLogState()
+updatePlayButtons()

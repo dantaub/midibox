@@ -1125,3 +1125,26 @@ select {
 	color: #888;
 	margin-top: 0.4rem;
 }
+
+/* MIDI output connection status */
+.out-status {
+	font-size: 0.85rem;
+	color: #888;
+}
+
+.out-status.active {
+	color: #4caf50;
+}
+
+.btn-disconnect {
+	background: transparent;
+	border: none;
+	color: #888;
+	cursor: pointer;
+	font-size: 0.8rem;
+	padding: 0 0.25rem;
+}
+
+.btn-disconnect:hover {
+	color: #ff6b6b;
+}

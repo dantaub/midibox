@@ -418,11 +418,27 @@ async function openOutputLinux(devicePath?: string): Promise<string> {
     throw new Error("No MIDI output devices found");
   }
 
+  // Probe writability up front so a permission problem surfaces here, with a
+  // useful message, instead of silently dropping every note later.
+  // 0xFE is Active Sensing - synths ignore it.
+  try {
+    await Bun.write(selected, new Uint8Array([0xfe]));
+  } catch (err: any) {
+    throw new Error(
+      `Cannot write to MIDI output ${selected}: ${err?.message ?? err}. ` +
+        `Check that the user running midibox is in the 'audio' group and that ` +
+        `nothing else holds the device open.`
+    );
+  }
+
   outputDevice = selected;
   console.log(`Opening raw MIDI output: ${outputDevice}`);
 
   return selected;
 }
+
+// Rate limit for output write errors, so a stuck device can't flood the log
+let lastOutputError = 0;
 
 export function sendMidiMessage(data: number[]): void {
   if (isMacOS) {
@@ -434,7 +450,16 @@ export function sendMidiMessage(data: number[]): void {
     if (!outputDevice) {
       throw new Error("MIDI output not open");
     }
-    Bun.write(outputDevice, new Uint8Array(data));
+    // Bun.write() is async - report failures instead of letting them become
+    // unhandled rejections, which is how a broken output looked like silence.
+    const device = outputDevice;
+    Bun.write(device, new Uint8Array(data)).catch((err: any) => {
+      const now = Date.now();
+      if (now - lastOutputError > 5000) {
+        lastOutputError = now;
+        console.error(`MIDI output write to ${device} failed: ${err?.message ?? err}`);
+      }
+    });
   }
 }
 
@@ -540,6 +565,11 @@ export async function disableThru(): Promise<void> {
 
 export function isThruEnabled(): boolean {
   return thruEnabled;
+}
+
+/** Currently open MIDI output, or null when nothing is connected */
+export function getOutputDevice(): string | null {
+  return outputDevice;
 }
 
 export function getThruOutput(): string | null {

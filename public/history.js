@@ -446,11 +446,17 @@ async function playHistorySelection() {
     try {
         $('historyStop').disabled = false
         $('historyPlay').disabled = true
-        await fetch('/api/playback/start', {
+        const res = await fetch('/api/playback/start', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
         })
+        if (!res.ok) {
+            const info = await res.json().catch(() => ({}))
+            $('historyPlay').disabled = false
+            $('historyStop').disabled = true
+            alert(`Playback failed: ${info.error || res.status}`)
+        }
     } catch (err) {
         console.error('Playback failed:', err)
         $('historyPlay').disabled = false
