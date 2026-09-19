@@ -670,34 +670,16 @@ function updateSelectionUI() {
 // the timeline draws (and reconciles the buttons) during startup.
 let playbackActive = false
 
-// The play buttons double as a "connect output" action when there is nothing
-// selected to play - otherwise the MIDI output would only ever open as a side
-// effect of playback, leaving click-to-play silent.
 function hasPlayableRange() {
     return !!timeline.selection || timeline.selectedSessionId != null
 }
 
+// Play is available only with something selected, and never mid-playback
+// (including MIDI file playback, which doesn't drive the timeline animation)
 function updatePlayButtons() {
-    const playable = hasPlayableRange()
-    const playBtn = $('timelinePlaySelection')
-
-    if (playable) {
-        btnPlayback.innerHTML = '&#x25B6; Play'
-        btnPlayback.title = 'Play the selected range'
-        playBtn.innerHTML = '&#x25B6;'
-        playBtn.title = 'Play selection (Space)'
-    } else {
-        btnPlayback.innerHTML = '&#x1F50C; Connect Out'
-        btnPlayback.title = 'Open the selected MIDI output so keys and playback can sound'
-        playBtn.innerHTML = '&#x1F50C;'
-        playBtn.title = 'Connect MIDI output'
-    }
-
-    // Both actions are unavailable mid-playback (including MIDI file playback,
-    // which doesn't drive the timeline animation)
-    const playing = timeline.isPlaying || playbackActive
-    btnPlayback.disabled = playing
-    playBtn.disabled = playing
+    const enabled = hasPlayableRange() && !timeline.isPlaying && !playbackActive
+    btnPlayback.disabled = !enabled
+    $('timelinePlaySelection').disabled = !enabled
 }
 
 function setSelection(startTime, endTime) {
@@ -1059,11 +1041,7 @@ $('timelinePlaySelection').addEventListener('click', async () => {
         }
     }
 
-    // Nothing to play - the button is "Connect Out" in this state
-    if (playStart == null || playEnd == null) {
-        await connectOutput()
-        return
-    }
+    if (playStart == null || playEnd == null) return
 
     const output = outputSelect.value || undefined
 
@@ -1512,12 +1490,23 @@ async function loadOutputs() {
 // MIDI Output Connection
 // ===========================================
 const outStatus = $('outStatus')
-const btnDisconnectOut = $('btnDisconnectOut')
+const btnConnectOut = $('btnConnectOut')
+
+// Device currently open on the server, or null
+let connectedOutput = null
 
 function setOutputStatus(device) {
-    outStatus.textContent = device ? device.split('/').pop() : 'No'
+    connectedOutput = device || null
+    const name = device ? device.split('/').pop() : ''
+
+    btnConnectOut.innerHTML = device ? '&#x1F50C; Connected' : '&#x1F50C; Connect Out'
+    btnConnectOut.classList.toggle('connected', !!device)
+    btnConnectOut.title = device
+        ? `Connected to ${name} - click to disconnect`
+        : 'Open the selected MIDI output'
+
+    outStatus.textContent = name
     outStatus.classList.toggle('active', !!device)
-    btnDisconnectOut.classList.toggle('hidden', !device)
 }
 
 async function loadOutputStatus() {
@@ -1556,19 +1545,27 @@ async function connectOutput() {
     }
 }
 
-btnDisconnectOut.addEventListener('click', async () => {
+async function disconnectOutput() {
     try {
         await fetch('/api/midi/output', { method: 'DELETE' })
         setOutputStatus(null)
     } catch (err) {
         console.error('Failed to disconnect output:', err)
     }
+}
+
+btnConnectOut.addEventListener('click', () => {
+    if (connectedOutput) {
+        disconnectOutput()
+    } else {
+        connectOutput()
+    }
 })
 
 // Save output device when changed, and follow it if already connected
 outputSelect.addEventListener('change', () => {
     saveSettings()
-    if (!btnDisconnectOut.classList.contains('hidden')) connectOutput()
+    if (connectedOutput) connectOutput()
 })
 
 // MIDI Thru

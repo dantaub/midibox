@@ -17,6 +17,18 @@
         </nav>
         <div class="header-right">
             <button class="btn-icon btn-log-toggle" id="btnToggleEventLog" title="Toggle event log window">&#x2630; Log</button>
+            <div class="header-control">
+                <button class="btn-connect" id="btnConnectOut" title="Open the selected MIDI output">&#x1F50C; Connect Out</button>
+                <span class="out-status" id="outStatus"></span>
+            </div>
+            <div class="header-control">
+                <span class="header-label">Thru</span>
+                <label class="toggle">
+                    <input type="checkbox" id="thruToggle">
+                    <span class="toggle-slider"></span>
+                </label>
+                <span class="thru-status" id="thruStatus">Off</span>
+            </div>
             <div class="status">
                 <div class="status-dot" id="statusDot"></div>
                 <span id="statusText">Connecting...</span>
@@ -106,19 +118,6 @@
                         <select id="outputSelect">
                             <option value="">Loading...</option>
                         </select>
-                    </div>
-                    <div class="control-row">
-                        <label class="control-label">Connected:</label>
-                        <span class="out-status" id="outStatus">No</span>
-                        <button class="btn-icon btn-disconnect hidden" id="btnDisconnectOut" title="Disconnect output">&#x2715;</button>
-                    </div>
-                    <div class="control-row">
-                        <label class="control-label">MIDI Thru:</label>
-                        <label class="toggle">
-                            <input type="checkbox" id="thruToggle">
-                            <span class="toggle-slider"></span>
-                        </label>
-                        <span class="thru-status" id="thruStatus">Off</span>
                     </div>
                     <div class="control-row">
                         <button class="btn btn-primary" id="btnPlayback">&#x25B6; Play</button>

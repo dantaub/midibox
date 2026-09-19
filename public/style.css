@@ -31,6 +31,43 @@ header {
 	display: flex;
 	align-items: center;
 	gap: 0.75rem;
+	flex-wrap: wrap;
+}
+
+/* Grouped controls in the header (output connection, MIDI thru) */
+.header-control {
+	display: flex;
+	align-items: center;
+	gap: 0.4rem;
+	background: #0f1830;
+	border-radius: 6px;
+	padding: 0.25rem 0.5rem;
+}
+
+.header-label {
+	font-size: 0.8rem;
+	color: #8a8aa8;
+}
+
+.btn-connect {
+	background: #1a1a2e;
+	color: #8a8aa8;
+	border: 1px solid #2a2a4a;
+	border-radius: 4px;
+	padding: 0.35rem 0.6rem;
+	font-size: 0.8rem;
+	cursor: pointer;
+	white-space: nowrap;
+}
+
+.btn-connect:hover {
+	color: #eee;
+}
+
+.btn-connect.connected {
+	background: #2a5a3a;
+	color: #4caf50;
+	border-color: #2a5a3a;
 }
 
 /* Tabs */
@@ -701,9 +738,8 @@ select {
 }
 
 .thru-status {
-	font-size: 0.85rem;
+	font-size: 0.8rem;
 	color: #888;
-	margin-left: 0.5rem;
 }
 
 .thru-status.active {
@@ -1128,8 +1164,12 @@ select {
 
 /* MIDI output connection status */
 .out-status {
-	font-size: 0.85rem;
+	font-size: 0.8rem;
 	color: #888;
+}
+
+.out-status:empty {
+	display: none;
 }
 
 .out-status.active {
@@ -1147,4 +1187,47 @@ select {
 
 .btn-disconnect:hover {
 	color: #ff6b6b;
+}
+
+/* Compact header controls on narrow screens, so the timeline keeps its space */
+@media (max-width: 899px) {
+	header {
+		padding: 0.5rem 0.75rem;
+		gap: 0.5rem;
+	}
+
+	h1 {
+		font-size: 1.1rem;
+	}
+
+	.header-right {
+		gap: 0.4rem;
+	}
+
+	.header-control {
+		padding: 0.15rem 0.35rem;
+		gap: 0.3rem;
+	}
+
+	.btn-connect,
+	.btn-log-toggle {
+		padding: 0.25rem 0.4rem;
+		font-size: 0.7rem;
+	}
+
+	.header-label,
+	.thru-status,
+	.status {
+		font-size: 0.7rem;
+	}
+
+	/* The connect button already reports the state */
+	.out-status {
+		display: none;
+	}
+
+	/* The timeline is the main view now - give it room to breathe */
+	.timeline-card {
+		min-height: 40vh;
+	}
 }
