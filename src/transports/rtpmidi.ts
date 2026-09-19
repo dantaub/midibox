@@ -123,6 +123,7 @@ class RtpMidiTransport implements MidiTransport {
   private target: { host: string; port: number } | null = null;
   private seq = 0;
   private readonly ssrc = (Math.random() * 0xffffffff) >>> 0;
+  private lastSendError = 0;
 
   constructor(private readonly multicast: boolean) {
     this.scheme = multicast ? "rtpm" : "rtp";
@@ -183,7 +184,14 @@ class RtpMidiTransport implements MidiTransport {
     if (!this.outSocket || !this.target) throw new Error("MIDI output not open");
     const packet = encodeRtpMidi(bytes, this.seq++ & 0xffff, this.ssrc, Date.now() >>> 0);
     this.outSocket.send(packet, this.target.port, this.target.host, (err) => {
-      if (err) console.error("RTP-MIDI send failed:", err);
+      // Throttle so a wedged socket can't flood the log (see rawalsa).
+      if (err) {
+        const now = Date.now();
+        if (now - this.lastSendError > 5000) {
+          this.lastSendError = now;
+          console.error("RTP-MIDI send failed:", err);
+        }
+      }
     });
   }
 

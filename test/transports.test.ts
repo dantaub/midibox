@@ -1,5 +1,6 @@
 import { test, expect, describe } from "bun:test";
 import { parseAddress } from "../src/transports/types";
+import { resolveScheme } from "../src/transports/select";
 import { encodeRtpMidi, decodeRtpMidi } from "../src/transports/rtpmidi";
 
 const schemes = ["seq", "rawalsa", "coremidi", "rtp", "rtpm"] as const;
@@ -35,6 +36,48 @@ describe("parseAddress", () => {
 
   test("undefined stays undefined", () => {
     expect(parseAddress(undefined, schemes)).toEqual({ scheme: undefined, rest: undefined });
+  });
+});
+
+describe("resolveScheme", () => {
+  test("honors an explicit scheme and marks it pinned", () => {
+    expect(resolveScheme("seq:USB Keyboard", schemes, "coremidi")).toEqual({
+      scheme: "seq",
+      rest: "USB Keyboard",
+      explicit: true,
+    });
+  });
+
+  test("a bare scheme name pins the scheme with no remainder", () => {
+    expect(resolveScheme("rawalsa", schemes, "seq")).toEqual({
+      scheme: "rawalsa",
+      rest: undefined,
+      explicit: true,
+    });
+  });
+
+  test("a bare address falls to the default scheme, not pinned", () => {
+    expect(resolveScheme("/dev/snd/midiC1D0", schemes, "seq")).toEqual({
+      scheme: "seq",
+      rest: "/dev/snd/midiC1D0",
+      explicit: false,
+    });
+  });
+
+  test("undefined uses the default scheme", () => {
+    expect(resolveScheme(undefined, schemes, "coremidi")).toEqual({
+      scheme: "coremidi",
+      rest: undefined,
+      explicit: false,
+    });
+  });
+
+  test("network endpoints keep host:port as the remainder", () => {
+    expect(resolveScheme("rtpm:225.0.0.37:21928", schemes, "seq")).toEqual({
+      scheme: "rtpm",
+      rest: "225.0.0.37:21928",
+      explicit: true,
+    });
   });
 });
 

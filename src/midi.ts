@@ -1,6 +1,6 @@
 import { recordEvent, type MidiEvent } from "./db";
 import type { MidiTransport } from "./transports/types";
-import { parseAddress } from "./transports/types";
+import { resolveScheme } from "./transports/select";
 import { RawAlsaTransport } from "./transports/rawalsa";
 import { CoreMidiTransport } from "./transports/coremidi";
 import { RtMidiTransport } from "./transports/rtmidi";
@@ -88,16 +88,10 @@ function platformDefault(): string {
   return isMacOS ? "coremidi" : "seq";
 }
 
-// Resolve an address into a scheme + the scheme-less remainder. Accepts:
-//   "seq:USB Keyboard"  -> { seq, "USB Keyboard" }   (explicit scheme)
-//   "rawalsa"           -> { rawalsa, undefined }     (bare scheme name)
-//   "/dev/snd/midiC1D0" -> { <default>, "/dev/snd..."}(bare address)
-//   undefined           -> { <default>, undefined }
-function resolve(id: string | undefined): { scheme: string; rest: string | undefined; explicit: boolean } {
-  const parsed = parseAddress(id, knownSchemes);
-  if (parsed.scheme) return { scheme: parsed.scheme, rest: parsed.rest, explicit: true };
-  if (id && knownSchemes.includes(id)) return { scheme: id, rest: undefined, explicit: true };
-  return { scheme: platformDefault(), rest: id, explicit: false };
+// Resolve an address into a scheme + the scheme-less remainder, defaulting to
+// the platform's scheme. See resolveScheme (transports/select.ts) for the rules.
+function resolve(id: string | undefined) {
+  return resolveScheme(id, knownSchemes, platformDefault());
 }
 
 // ===========================================
@@ -216,10 +210,7 @@ export async function openOutput(id?: string): Promise<string> {
 
   // Default the output scheme to whatever the input is using, so a plain device
   // name picked in the UI opens on the same backend.
-  const fallbackScheme = activeInput?.scheme ?? platformDefault();
-  const parsed = parseAddress(id, knownSchemes);
-  const scheme = parsed.scheme ?? (id && knownSchemes.includes(id) ? id : fallbackScheme);
-  const rest = parsed.scheme ? parsed.rest : id && knownSchemes.includes(id) ? undefined : id;
+  const { scheme, rest } = resolveScheme(id, knownSchemes, activeInput?.scheme ?? platformDefault());
 
   const transport = getTransport(scheme);
   const name = await transport.openOutput(rest);
@@ -284,10 +275,7 @@ export function getOutputDevice(): string | null {
 export async function enableThru(id?: string): Promise<string> {
   await disableThru();
 
-  const fallbackScheme = activeInput?.scheme ?? platformDefault();
-  const parsed = parseAddress(id, knownSchemes);
-  const scheme = parsed.scheme ?? (id && knownSchemes.includes(id) ? id : fallbackScheme);
-  const rest = parsed.scheme ? parsed.rest : id && knownSchemes.includes(id) ? undefined : id;
+  const { scheme, rest } = resolveScheme(id, knownSchemes, activeInput?.scheme ?? platformDefault());
 
   // Fresh instance so thru never shares the playback output handle.
   const transport = registry[scheme]?.();
