@@ -225,6 +225,10 @@ const timeline = {
     // Direction: false = time runs downward, true = upward
     flipped: false,
 
+    // Live update rate: a note length (in beats) at a tempo
+    tempo: 120,
+    rateBeats: 1,
+
     // Data cache
     events: [],
     sessions: [],
@@ -1154,22 +1158,96 @@ window.addEventListener('resize', resizeCanvas)
 resizeCanvas()
 loadTimelineData()
 
-// While live, keep the view moving and periodically re-read the window, so
-// anything written outside this browser session shows up too.
-let lastLiveFetch = 0
+// ===========================================
+// Live update rate (musical: a note length at a tempo)
+// ===========================================
+const timelineRate = $('timelineRate')
+const timelineTempo = $('timelineTempo')
+const tempoReadout = $('tempoReadout')
 
-setInterval(async () => {
-    if (!isLive()) return
+// How often the live view redraws, in milliseconds
+function liveIntervalMs() {
+    return (60000 / timeline.tempo) * timeline.rateBeats
+}
 
-    updateTimeLabels()
-    drawTimeline()
+function updateTempoReadout() {
+    const ms = Math.round(liveIntervalMs())
+    tempoReadout.textContent = `${timeline.tempo} BPM`
+    tempoReadout.title = `${timelineRate.selectedOptions[0]?.textContent.trim()} at ${timeline.tempo} BPM = ${ms} ms`
+    timelineTempo.title = `Tempo: ${timeline.tempo} BPM (updates every ${ms} ms)`
+}
 
-    if (Date.now() - lastLiveFetch > 10000) {
-        lastLiveFetch = Date.now()
-        await fetchTimelineEvents(getViewStart(), getViewEnd())
-        drawTimeline()
+function saveLiveRate() {
+    localStorage.setItem('midibox-live-rate', JSON.stringify({
+        tempo: timeline.tempo,
+        beats: timeline.rateBeats,
+    }))
+}
+
+function loadLiveRate() {
+    try {
+        const saved = JSON.parse(localStorage.getItem('midibox-live-rate') || 'null')
+        if (saved) {
+            if (Number.isFinite(saved.tempo)) timeline.tempo = Math.min(220, Math.max(40, saved.tempo))
+            if (Number.isFinite(saved.beats) && saved.beats > 0) timeline.rateBeats = saved.beats
+        }
+    } catch (e) {
+        console.error('Failed to load live rate:', e)
     }
-}, 1000)
+
+    timelineTempo.value = String(timeline.tempo)
+    // Match the stored note length to an option (floating point, so compare loosely)
+    const option = [...timelineRate.options].find(o => Math.abs(parseFloat(o.value) - timeline.rateBeats) < 1e-6)
+    if (option) timelineRate.value = option.value
+    updateTempoReadout()
+}
+
+timelineRate.addEventListener('change', () => {
+    timeline.rateBeats = parseFloat(timelineRate.value)
+    saveLiveRate()
+    updateTempoReadout()
+    scheduleLiveTick()
+})
+
+timelineTempo.addEventListener('input', () => {
+    timeline.tempo = parseInt(timelineTempo.value, 10)
+    saveLiveRate()
+    updateTempoReadout()
+    scheduleLiveTick()
+})
+
+// While live, keep the view moving at the chosen rate and periodically re-read
+// the window, so anything written outside this browser session shows up too.
+let lastLiveFetch = 0
+let liveTickTimer = null
+
+async function liveTick() {
+    liveTickTimer = null
+
+    if (isLive()) {
+        updateTimeLabels()
+        drawTimeline()
+
+        // Re-reading the database is far more expensive than a redraw, so it
+        // runs on its own floor no matter how fast the note rate is
+        const refetchEvery = Math.max(5000, liveIntervalMs() * 8)
+        if (Date.now() - lastLiveFetch > refetchEvery) {
+            lastLiveFetch = Date.now()
+            await fetchTimelineEvents(getViewStart(), getViewEnd())
+            drawTimeline()
+        }
+    }
+
+    scheduleLiveTick()
+}
+
+function scheduleLiveTick() {
+    clearTimeout(liveTickTimer)
+    liveTickTimer = setTimeout(liveTick, liveIntervalMs())
+}
+
+loadLiveRate()
+scheduleLiveTick()
 
 // ===========================================
 // WebSocket Connection

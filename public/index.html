@@ -66,6 +66,20 @@
                     <button id="timelineZoomIn" class="btn-icon" title="Zoom In (+)">+</button>
                     <button id="timelineZoomOut" class="btn-icon" title="Zoom Out (-)">-</button>
                     <button id="timelinePanRight" class="btn-icon" title="Later (Arrow Down)">&#x2193;</button>
+                    <select id="timelineRate" title="Live update rate, in note lengths at the tempo below">
+                        <option value="4">1/1</option>
+                        <option value="3">1/2.</option>
+                        <option value="2">1/2</option>
+                        <option value="1.5">1/4.</option>
+                        <option value="1" selected>1/4 &#x2669;</option>
+                        <option value="0.6666666666666666">1/4T</option>
+                        <option value="0.75">1/8.</option>
+                        <option value="0.5">1/8 &#x266A;</option>
+                        <option value="0.3333333333333333">1/8T</option>
+                        <option value="0.25">1/16</option>
+                    </select>
+                    <input type="range" id="timelineTempo" class="tempo-slider" min="40" max="220" step="1" value="120" title="Tempo (BPM)">
+                    <span class="tempo-readout" id="tempoReadout">120 BPM</span>
                     <span class="timeline-separator">|</span>
                     <button id="timelinePlaySelection" class="btn-play" title="Play selection (Space)" disabled>&#x25B6;</button>
                     <button id="timelineStop" class="btn-stop-small" title="Stop (Esc)" disabled>&#x23F9;</button>

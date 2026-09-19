@@ -531,6 +531,8 @@ select {
 }
 
 .timeline-controls select {
+	/* Global selects stretch; these sit inline with the buttons */
+	flex: 0 0 auto;
 	padding: 0.25rem;
 	font-size: 0.75rem;
 	border: none;
@@ -1228,4 +1230,21 @@ select {
 	.piano {
 		height: 70px;
 	}
+}
+
+/* Live update rate: note length + tempo */
+.timeline-controls select#timelineRate {
+	min-width: 68px;
+}
+
+.tempo-slider {
+	width: 110px;
+	accent-color: #e94560;
+	cursor: pointer;
+}
+
+.tempo-readout {
+	font-size: 0.7rem;
+	color: #888;
+	min-width: 62px;
 }

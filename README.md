@@ -25,6 +25,8 @@ Perfect for musicians who want to capture spontaneous practice moments without r
     while pitch runs across, lined up with the keys above
   - A **Live** toggle in the header follows the present and keeps refreshing;
     switch it off to freeze the view, or hit Refresh to re-read the window
+  - The live update rate is a note length (1/1 down to 1/16, dotted and triplet)
+    at a tempo set by a 40-220 BPM slider
   - **History** - recorded activity grouped by date, split into stretches of
     playing, with sparklines, per-stretch playback, and save-as-session
   - Lettered recording banks (A-L, or untagged) that tag incoming notes, with a
