@@ -50,6 +50,15 @@ systemctl status midibox
 journalctl -u midibox -f      # logs
 ```
 
+Run it again and it refuses, printing the commands for the installation it
+found rather than overwriting it. To reinstall — after moving the directory, or
+to pick up a new unit file — pass `--force`; your `/etc/default/midibox` is
+kept either way.
+
+```bash
+./scripts/install-service.sh --force
+```
+
 ### systemd (user service)
 
 No root needed. Good on a machine you log into, or where you'd rather keep
@@ -85,7 +94,8 @@ sudo rc-service midibox start
 ```
 
 It writes `/etc/init.d/midibox` with settings in `/etc/conf.d/midibox`, and logs
-to `/var/log/midibox.log`.
+to `/var/log/midibox.log`. As with systemd, a second run refuses unless you pass
+`--force`, and an existing `/etc/conf.d/midibox` is kept.
 
 ### By hand
 
@@ -136,8 +146,8 @@ match the working directory or the service can't write its database. Then:
 sudo systemctl daemon-reload && sudo systemctl restart midibox
 ```
 
-Re-running `./scripts/install-service.sh` from the new location does the same
-thing and overwrites the unit.
+Re-running `./scripts/install-service.sh --force` from the new location does the
+same thing and rewrites the unit.
 
 ## The database
 
