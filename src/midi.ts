@@ -222,16 +222,22 @@ export async function stopCapture(): Promise<void> {
 // ===========================================
 
 export async function openOutput(id?: string): Promise<string> {
+  // Default the output scheme to whatever the input is using, so a plain device
+  // name picked in the UI opens on the same backend.
+  const { scheme, rest } = resolveScheme(id, knownSchemes, activeInput?.scheme ?? platformDefault());
+
+  // Already open on the requested device? Don't tear the port down and back up -
+  // that strands any sounding notes (and clicks) for no reason.
+  if (activeOutput && activeOutput.scheme === scheme && (rest === undefined || rest === outputDevice)) {
+    return outputDevice!;
+  }
+
   if (activeOutput) {
     try {
       await activeOutput.closeOutput();
     } catch {}
     activeOutput = null;
   }
-
-  // Default the output scheme to whatever the input is using, so a plain device
-  // name picked in the UI opens on the same backend.
-  const { scheme, rest } = resolveScheme(id, knownSchemes, activeInput?.scheme ?? platformDefault());
 
   const transport = getTransport(scheme);
   const name = await transport.openOutput(rest);

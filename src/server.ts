@@ -285,6 +285,10 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
       const body = await req.json();
       const { start, end, output } = body;
 
+      // Stop and silence any current playback FIRST, on its still-open output,
+      // before we touch the output device below.
+      stopPlayback();
+
       // Open output if specified
       if (output) {
         await openOutput(output);
@@ -355,6 +359,9 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
       if (!file) {
         return json({ error: "No file provided" }, 400);
       }
+
+      // Stop + silence any current playback on its still-open output first.
+      stopPlayback();
 
       // Open output if specified
       if (outputDevice) {
