@@ -273,3 +273,54 @@ describe.skipIf(!!reason)("history view", () => {
     await page.close();
   }, 30_000);
 });
+
+describe.skipIf(!!reason)("import/export view", () => {
+  test("lists sessions with a MIDI export link", async () => {
+    const base = Date.now() - 60 * 60 * 1000;
+    await fetch(`${URL}api/sessions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ start_time: base, end_time: base + 1000, song_name: "Export me" }),
+    });
+
+    const { page, errors } = await open();
+    await page.click('#tabs .tab[data-view="io"]');
+    await page.waitForTimeout(500);
+    expect(await page.isVisible("#viewIO")).toBe(true);
+    const href = await page.getAttribute(".io-session .io-export", "href");
+    expect(href).toMatch(/\/api\/sessions\/\d+\/export\.mid/);
+    expect(errors).toEqual([]);
+    await page.close();
+  }, 30_000);
+
+  test("piano-roll popup renders the shared component (88 keys + sized canvas)", async () => {
+    const { page, errors } = await open();
+    await page.evaluate(() => {
+      const t = Date.now();
+      const events = [
+        { type: "noteon", note: 60, velocity: 90, timestamp: t },
+        { type: "noteon", note: 64, velocity: 90, timestamp: t + 5 },
+        { type: "noteoff", note: 60, velocity: 0, timestamp: t + 500 },
+        { type: "noteoff", note: 64, velocity: 0, timestamp: t + 500 },
+      ];
+      (window as any).openPianoRollPopup(events, { start: t - 50, end: t + 600, title: "Test" });
+    });
+    await page.waitForTimeout(400);
+    expect(await page.isVisible("#pianoRollModal")).toBe(true);
+    const info = await page.evaluate(() => {
+      const c = document.querySelector("#pianoRollModalBody canvas") as HTMLCanvasElement;
+      const r = c.getBoundingClientRect();
+      const keys = document.querySelectorAll("#pianoRollModalBody .white-key, #pianoRollModalBody .black-key").length;
+      return { w: r.width, h: r.height, keys };
+    });
+    expect(info.w).toBeGreaterThan(50);
+    expect(info.h).toBeGreaterThan(50);
+    expect(info.keys).toBe(88);
+    // Esc closes it
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(200);
+    expect(await page.isVisible("#pianoRollModal")).toBe(false);
+    expect(errors).toEqual([]);
+    await page.close();
+  }, 30_000);
+});

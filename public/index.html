@@ -244,6 +244,17 @@
         </div>
     </section>
 
+    <!-- Piano-roll popup (reuses the main piano+timeline component) -->
+    <div class="modal-overlay hidden" id="pianoRollModal">
+        <div class="modal">
+            <div class="modal-header">
+                <span class="modal-title" id="pianoRollModalTitle">Piano roll</span>
+                <button class="modal-close" id="pianoRollModalClose" title="Close">&#x2715;</button>
+            </div>
+            <div class="modal-body piano-roll-modal-body" id="pianoRollModalBody"></div>
+        </div>
+    </div>
+
     <!-- Floating event log window (toggled from the header) -->
     <div class="floating-panel hidden" id="eventLogPanel">
         <div class="floating-panel-header" id="eventLogHeader">
@@ -272,6 +283,7 @@
     <script src="piano-roll.js"></script>
     <script src="app.js"></script>
     <script src="history.js"></script>
+    <script src="popup.js"></script>
     <script src="io.js"></script>
 </body>
 
