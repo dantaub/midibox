@@ -1338,6 +1338,16 @@ function onLiveEvent(fn) {
     liveEventHooks.push(fn)
 }
 
+// ...and the playback stream (see io.js: the inline preview's moving playhead)
+const playbackEventHooks = []
+function onPlaybackEvent(fn) {
+    playbackEventHooks.push(fn)
+}
+const playbackStatusHooks = []
+function onPlaybackStatus(fn) {
+    playbackStatusHooks.push(fn)
+}
+
 function handleMidiEvent(event) {
     if (isNoteOn(event)) activateNote(event.note, false)
     else if (isNoteOff(event)) deactivateNote(event.note, false)
@@ -1408,8 +1418,17 @@ function handlePlaybackStatus(data) {
         btnPlayback.disabled = true
         btnStop.disabled = false
         btnStopFile.disabled = false
+        btnPauseFile.disabled = false
+        btnPauseFile.dataset.paused = '0'
+        btnPauseFile.innerHTML = '&#x23F8; Pause'
         $('timelineStop').disabled = false
         $('timelinePlaySelection').disabled = true
+    } else if (data.status === 'paused') {
+        btnPauseFile.dataset.paused = '1'
+        btnPauseFile.innerHTML = '&#x25B6; Resume'
+    } else if (data.status === 'resumed') {
+        btnPauseFile.dataset.paused = '0'
+        btnPauseFile.innerHTML = '&#x23F8; Pause'
     } else if (data.status === 'ended') {
         playbackActive = false
         stopPlaybackAnimation()
@@ -1417,12 +1436,19 @@ function handlePlaybackStatus(data) {
         btnPlayback.disabled = false
         btnStop.disabled = true
         btnStopFile.disabled = true
+        btnPauseFile.disabled = true
+        btnPauseFile.dataset.paused = '0'
+        btnPauseFile.innerHTML = '&#x23F8; Pause'
         $('timelineStop').disabled = true
         updatePlayButtons()
         clearPlaybackNotes()
         progressFill.style.width = '0%'
         progressText.textContent = 'Complete'
         drawTimeline()
+    }
+
+    for (const fn of playbackStatusHooks) {
+        try { fn(data.status) } catch (err) { console.error('Playback status hook failed:', err) }
     }
 }
 
@@ -1438,6 +1464,10 @@ function handlePlaybackEvent(data) {
     // Calibrate animation timing based on actual event timestamp
     if (event.timestamp != null) {
         calibratePlayback(event.timestamp)
+    }
+
+    for (const fn of playbackEventHooks) {
+        try { fn(data) } catch (err) { console.error('Playback hook failed:', err) }
     }
 }
 
@@ -2162,6 +2192,7 @@ sessionList.addEventListener('dblclick', async (e) => {
 const midiFileInput = $('midiFileInput')
 const btnSelectFile = $('btnSelectFile')
 const btnPlayFile = $('btnPlayFile')
+const btnPauseFile = $('btnPauseFile')
 const btnStopFile = $('btnStopFile')
 const btnFilePianoRoll = $('btnFilePianoRoll')
 const btnFileScore = $('btnFileScore')
@@ -2211,6 +2242,15 @@ btnStopFile.addEventListener('click', async () => {
         await fetch('/api/playback/stop', { method: 'POST' })
     } catch (err) {
         console.error('Stop failed:', err)
+    }
+})
+
+btnPauseFile.addEventListener('click', async () => {
+    const paused = btnPauseFile.dataset.paused === '1'
+    try {
+        await fetch(paused ? '/api/playback/resume' : '/api/playback/pause', { method: 'POST' })
+    } catch (err) {
+        console.error('Pause/resume failed:', err)
     }
 })
 

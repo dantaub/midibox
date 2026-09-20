@@ -102,3 +102,11 @@ discovery, or journal.
 Suggested order: **1 (Litestream) → 2 (MIDI export) → 4 (Tailscale)**. Backup
 protects what can't be recreated for the least effort; export unlocks the
 recordings; secure access is a no-code tunnel when you need it.
+
+
+
+
+OTHER THINGS:
+
+Loading a midi file in "learning mode" where it shows the key(s) you're supposed to press next, and it proceeds after you successfully do that. Import an image and have it try to show you how to play that picture.
+

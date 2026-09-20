@@ -1561,6 +1561,12 @@ main,
 	flex-shrink: 0;
 }
 
+/* Mid-grey text: <button> defaults to black, invisible on the dark rows */
+.io-view .btn-icon,
+.io-view a.btn-icon {
+	color: #b0b0c0;
+}
+
 /* All row actions share one button style, whether <button> or <a download> */
 .io-item-actions .btn-icon,
 .io-item-actions a.btn-icon {
@@ -1573,10 +1579,16 @@ main,
 	background: #1c1c34;
 }
 
-.io-item-actions .btn-icon:hover,
-.io-item-actions a.btn-icon:hover {
+.io-view .btn-icon:hover,
+.io-view a.btn-icon:hover {
 	background: #26264a;
 	color: #fff;
+}
+
+/* Import actions: equal-width buttons on the row */
+.io-actions .btn {
+	flex: 1 1 8rem;
+	text-align: center;
 }
 
 /* Inline piano-roll preview: expands on the page (no modal) */

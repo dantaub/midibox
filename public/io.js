@@ -24,11 +24,15 @@ function openIOPianoRoll(events, { title, start, end } = {}) {
     const evs = events || []
     const s = start ?? (evs.length ? evs[0].timestamp : 0)
     const e = end ?? (evs.length ? evs[evs.length - 1].timestamp : s + 1000)
+    previewStart = s
+    previewEnd = e
+    stopPreviewPlayhead()
     ioPreview.scrollIntoView({ behavior: 'smooth', block: 'start' })
     requestAnimationFrame(() => ioPreviewInstance && ioPreviewInstance.setData(evs, s, e))
 }
 
 function closeIOPreview() {
+    stopPreviewPlayhead()
     ioPreview.classList.add('hidden')
     ioPreviewBody.innerHTML = ''
     ioPreviewInstance = null
@@ -36,6 +40,49 @@ function closeIOPreview() {
 
 $('ioPreviewClose').addEventListener('click', closeIOPreview)
 window.addEventListener('resize', () => { if (ioPreviewInstance) ioPreviewInstance.resize() })
+
+// ---- Moving playhead + lit keys, driven by the playback stream -------------
+let previewStart = 0
+let previewEnd = 1
+let pbProgress = 0        // last progress (0..1) reported by the server
+let pbAt = 0              // performance.now() when pbProgress was set
+let pbRaf = null
+
+function startPreviewPlayhead() {
+    if (pbRaf != null) return
+    const tick = () => {
+        if (!ioPreviewInstance || ioPreview.classList.contains('hidden')) { pbRaf = null; return }
+        const span = Math.max(1, previewEnd - previewStart)
+        // Interpolate between server updates so the line glides (progress
+        // advances 1 over the whole span).
+        const est = Math.max(0, Math.min(1, pbProgress + (performance.now() - pbAt) / span))
+        ioPreviewInstance.setPlayhead(previewStart + est * (previewEnd - previewStart))
+        pbRaf = requestAnimationFrame(tick)
+    }
+    pbRaf = requestAnimationFrame(tick)
+}
+
+function stopPreviewPlayhead() {
+    if (pbRaf != null) cancelAnimationFrame(pbRaf)
+    pbRaf = null
+}
+
+onPlaybackEvent((data) => {
+    if (!ioPreviewInstance || ioPreview.classList.contains('hidden')) return
+    pbProgress = data.progress
+    pbAt = performance.now()
+    const ev = data.event
+    if (isNoteOn(ev)) ioPreviewInstance.highlight(ev.note, true)
+    else if (isNoteOff(ev)) ioPreviewInstance.highlight(ev.note, false)
+    startPreviewPlayhead()
+})
+
+onPlaybackStatus((status) => {
+    if (status === 'ended') {
+        stopPreviewPlayhead()
+        if (ioPreviewInstance) ioPreviewInstance.clearHighlights()
+    }
+})
 
 // ---- Shared helpers --------------------------------------------------------
 async function fetchEventsRange(start, end) {

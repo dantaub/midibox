@@ -149,6 +149,7 @@ function createPianoRoll(container, opts = {}) {
     let events = []
     let start = 0
     let end = 1
+    let playhead = null   // ms position of the playback line, or null
 
     function render() {
         const width = wrap.clientWidth
@@ -177,6 +178,45 @@ function createPianoRoll(container, opts = {}) {
         const bars = pairNoteBars(events, end)
         if (opts.align) alignChordBars(bars, opts.alignGapMs ?? 12, opts.alignMaxSpanMs ?? 60)
         drawNoteBarsVertical(ctx, bars, width, timeToY)
+
+        // Playback line + head, like the Live view
+        if (playhead != null) {
+            const y = timeToY(playhead)
+            if (y >= 0 && y <= height) {
+                ctx.save()
+                ctx.strokeStyle = '#ef4444'
+                ctx.lineWidth = 2
+                ctx.beginPath()
+                ctx.moveTo(0, y)
+                ctx.lineTo(width, y)
+                ctx.stroke()
+                ctx.beginPath()
+                ctx.moveTo(0, y - 6)
+                ctx.lineTo(0, y + 6)
+                ctx.lineTo(8, y)
+                ctx.closePath()
+                ctx.fillStyle = '#ef4444'
+                ctx.fill()
+                ctx.restore()
+            }
+        }
+    }
+
+    // Playback overlay: a moving line + lit keys, driven by the caller.
+    function setPlayhead(t) {
+        playhead = t
+        render()
+    }
+
+    function highlight(note, on) {
+        const key = keys[note]
+        if (key) key.classList.toggle('playback', on)
+    }
+
+    function clearHighlights() {
+        for (const note in keys) keys[note].classList.remove('playback')
+        playhead = null
+        render()
     }
 
     function resize() {
@@ -199,5 +239,5 @@ function createPianoRoll(container, opts = {}) {
         resize()
     }
 
-    return { render, resize, setData, canvas, piano, keys, element: wrap }
+    return { render, resize, setData, setPlayhead, highlight, clearHighlights, canvas, piano, keys, element: wrap }
 }

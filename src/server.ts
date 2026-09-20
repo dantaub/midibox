@@ -300,10 +300,24 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
       return json({ status: "playing", eventCount: events.length, duration: events.length > 0 ? events[events.length - 1].timestamp - events[0].timestamp : 0 });
     }
 
-    // POST /api/playback/stop  
+    // POST /api/playback/stop
     if (path === "/playback/stop" && method === "POST") {
       stopPlayback();
       return json({ status: "stopped" });
+    }
+
+    // POST /api/playback/pause - hold playback (silences held notes)
+    if (path === "/playback/pause" && method === "POST") {
+      const changed = setPlaybackPaused(true);
+      if (changed) broadcast({ type: "playback", status: "paused" });
+      return json({ status: "paused" });
+    }
+
+    // POST /api/playback/resume - continue a paused playback
+    if (path === "/playback/resume" && method === "POST") {
+      const changed = setPlaybackPaused(false);
+      if (changed) broadcast({ type: "playback", status: "resumed" });
+      return json({ status: "resumed" });
     }
 
     // POST /api/midi/file/parse - parse a MIDI file to events for preview (not stored)
@@ -378,9 +392,38 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
 let playbackActive = false;
 let playbackAbortController: AbortController | null = null;
 
+// Pause: the scheduler runs on a virtual clock that stops advancing while
+// paused (pausedTotalMs accumulates), so timing after resume stays aligned.
+let playbackPaused = false;
+let pausedTotalMs = 0;
+let pauseStartedAt = 0;
+let pauseWaiters: Array<() => void> = [];
+
+function wakePauseWaiters(): void {
+  const waiters = pauseWaiters;
+  pauseWaiters = [];
+  for (const w of waiters) w();
+}
+
+function setPlaybackPaused(paused: boolean): boolean {
+  if (!playbackActive || paused === playbackPaused) return false;
+  if (paused) {
+    playbackPaused = true;
+    pauseStartedAt = Date.now();
+    allNotesOff(); // silence held notes for the duration of the pause
+  } else {
+    pausedTotalMs += Date.now() - pauseStartedAt;
+    playbackPaused = false;
+    wakePauseWaiters();
+  }
+  return true;
+}
+
 function stopPlayback(): void {
   const wasPlaying = playbackActive || playbackAbortController !== null;
   playbackActive = false;
+  playbackPaused = false;
+  wakePauseWaiters(); // let a loop parked at the pause gate exit
   if (playbackAbortController) {
     playbackAbortController.abort();
     playbackAbortController = null;
@@ -426,29 +469,43 @@ async function runTimedPlayback<T>(
   payload: (item: T, index: number) => string,
   clients: Set<ServerWebSocket<unknown>>
 ): Promise<void> {
-  const playbackStart = Date.now();
+  const playStartWall = Date.now();
+  pausedTotalMs = 0;
+  playbackPaused = false;
+  // Virtual clock: wall time minus time spent paused. Doesn't advance while
+  // parked at the pause gate, so scheduled offsets stay aligned after resume.
+  const virtualNow = () => Date.now() - playStartWall - pausedTotalMs;
   const lateness: number[] = [];
   let batches = 0;
   let i = 0;
 
   try {
     while (i < items.length && playbackActive) {
-      const target = playbackStart + offsetMs(items[i]!);
-      const wait = target - Date.now();
-      if (wait > 0) await abortableSleep(wait);
+      // Park here while paused (woken by resume or stop).
+      while (playbackPaused && playbackActive) {
+        await new Promise<void>((res) => pauseWaiters.push(res));
+      }
       if (!playbackActive) break;
 
+      // Sleep toward the next event, in <=100ms chunks so a pause/stop is
+      // noticed promptly; short waits (chords) still sleep their exact length.
+      const wait = offsetMs(items[i]!) - virtualNow();
+      if (wait > PLAYBACK_BATCH_EPSILON_MS) {
+        await abortableSleep(Math.min(wait, 100));
+        continue;
+      }
+
       // Drain everything now due (plus a small look-ahead) into one batch.
-      const now = Date.now();
+      const now = virtualNow();
       const start = i;
-      while (i < items.length && playbackStart + offsetMs(items[i]!) <= now + PLAYBACK_BATCH_EPSILON_MS) {
+      while (i < items.length && offsetMs(items[i]!) <= now + PLAYBACK_BATCH_EPSILON_MS) {
         i++;
       }
 
       // Audio first.
       for (let k = start; k < i; k++) emit(items[k]!);
 
-      const late = Date.now() - target;
+      const late = now - offsetMs(items[start]!);
       lateness.push(late);
       batches++;
       if (PLAYBACK_DEBUG) {

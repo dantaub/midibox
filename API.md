@@ -131,7 +131,15 @@ permission) come back as `500 {error}`.
 
 ### `POST /api/playback/stop`
 
-Stops immediately. `{status:"stopped"}`.
+Stops immediately and sends a MIDI panic (note-offs for held notes + CC 120/123)
+so nothing hangs. `{status:"stopped"}`.
+
+### `POST /api/playback/pause` · `POST /api/playback/resume`
+
+Hold and continue the current playback. Pausing silences held notes; the
+scheduler runs on a virtual clock so timing stays aligned across the pause.
+`{status:"paused"|"resumed"}`, and a `playback` WebSocket message with the same
+status.
 
 ### `POST /api/playback/file`
 

@@ -240,8 +240,17 @@ export async function openOutput(id?: string): Promise<string> {
   return name;
 }
 
+// Notes we've turned on at the output (channel<<8 | note), so a panic can send
+// an exact note-off for each - more reliable than CC 123 alone, which some
+// synths ignore.
+const activeOutNotes = new Set<number>();
+
 export function sendMidiMessage(data: number[]): void {
   if (!activeOutput) throw new Error("MIDI output not open");
+  const status = data[0]! & 0xf0;
+  const ch = data[0]! & 0x0f;
+  if (status === 0x90 && (data[2] ?? 0) > 0) activeOutNotes.add((ch << 8) | data[1]!);
+  else if (status === 0x80 || (status === 0x90 && (data[2] ?? 0) === 0)) activeOutNotes.delete((ch << 8) | data[1]!);
   activeOutput.send(data);
 }
 
@@ -271,7 +280,7 @@ export function playEvent(event: MidiEvent): void {
       return;
   }
 
-  activeOutput.send(data);
+  sendMidiMessage(data);
 }
 
 // MIDI panic: silence every channel. Used when playback is stopped mid-note, so
@@ -279,6 +288,14 @@ export function playEvent(event: MidiEvent): void {
 // sustain-off, all-notes-off and all-sound-off on all 16 channels.
 export function allNotesOff(): void {
   if (!activeOutput) return;
+  // Exact note-offs for everything we turned on (reliable on every synth)...
+  for (const key of activeOutNotes) {
+    try {
+      activeOutput.send([0x80 | (key >> 8), key & 0xff, 0x00]);
+    } catch {}
+  }
+  activeOutNotes.clear();
+  // ...then the CC panic as a belt-and-suspenders on all 16 channels.
   for (let ch = 0; ch < 16; ch++) {
     try {
       activeOutput.send([0xb0 | ch, 0x40, 0x00]); // CC 64  - sustain off

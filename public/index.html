@@ -220,15 +220,6 @@
 
     <!-- Import / Export tab -->
     <section class="view io-view hidden" id="viewIO">
-        <!-- Inline preview: the piano roll expands here (no modal) -->
-        <div class="card io-card io-preview hidden" id="ioPreview">
-            <div class="io-preview-header">
-                <span class="io-preview-title" id="ioPreviewTitle">Piano roll</span>
-                <button class="btn-icon" id="ioPreviewClose" title="Close">&#x2715;</button>
-            </div>
-            <div class="io-preview-body" id="ioPreviewBody"></div>
-        </div>
-
         <div class="card io-card">
             <h2>Import a MIDI file</h2>
             <p class="io-hint">Load a <code>.mid</code> to preview or play. Recent imports are kept in your browser, not on the server.</p>
@@ -238,6 +229,7 @@
                 <div id="fileInfo" class="file-info"></div>
                 <div class="io-actions">
                     <button class="btn btn-primary btn-file-play" id="btnPlayFile" disabled>&#x25B6; Play</button>
+                    <button class="btn btn-secondary" id="btnPauseFile" disabled>&#x23F8; Pause</button>
                     <button class="btn btn-stop" id="btnStopFile" disabled>&#x23F9; Stop</button>
                     <button class="btn btn-secondary" id="btnFilePianoRoll" disabled>&#x1F3B9; Piano roll</button>
                     <button class="btn btn-secondary" id="btnFileScore" disabled>&#x1D11E; Score</button>
@@ -258,6 +250,15 @@
             <div class="io-session-list" id="ioSessionList">
                 <div class="history-empty">Loading&hellip;</div>
             </div>
+        </div>
+
+        <!-- Inline preview: the piano roll expands here (below), with a moving playhead -->
+        <div class="card io-card io-preview hidden" id="ioPreview">
+            <div class="io-preview-header">
+                <span class="io-preview-title" id="ioPreviewTitle">Piano roll</span>
+                <button class="btn-icon" id="ioPreviewClose" title="Close">&#x2715;</button>
+            </div>
+            <div class="io-preview-body" id="ioPreviewBody"></div>
         </div>
     </section>
 
