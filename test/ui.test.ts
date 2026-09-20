@@ -293,8 +293,10 @@ describe.skipIf(!!reason)("import/export view", () => {
     await page.close();
   }, 30_000);
 
-  test("piano-roll popup renders the shared component (88 keys + sized canvas)", async () => {
+  test("inline piano-roll preview renders the shared component (88 keys + sized canvas)", async () => {
     const { page, errors } = await open();
+    await page.click('#tabs .tab[data-view="io"]');
+    await page.waitForTimeout(200);
     await page.evaluate(() => {
       const t = Date.now();
       const events = [
@@ -303,23 +305,22 @@ describe.skipIf(!!reason)("import/export view", () => {
         { type: "noteoff", note: 60, velocity: 0, timestamp: t + 500 },
         { type: "noteoff", note: 64, velocity: 0, timestamp: t + 500 },
       ];
-      (window as any).openPianoRollPopup(events, { start: t - 50, end: t + 600, title: "Test" });
+      (window as any).openIOPianoRoll(events, { start: t - 50, end: t + 600, title: "Test" });
     });
     await page.waitForTimeout(400);
-    expect(await page.isVisible("#pianoRollModal")).toBe(true);
+    expect(await page.isVisible("#ioPreview")).toBe(true);
     const info = await page.evaluate(() => {
-      const c = document.querySelector("#pianoRollModalBody canvas") as HTMLCanvasElement;
+      const c = document.querySelector("#ioPreviewBody canvas") as HTMLCanvasElement;
       const r = c.getBoundingClientRect();
-      const keys = document.querySelectorAll("#pianoRollModalBody .white-key, #pianoRollModalBody .black-key").length;
+      const keys = document.querySelectorAll("#ioPreviewBody .white-key, #ioPreviewBody .black-key").length;
       return { w: r.width, h: r.height, keys };
     });
     expect(info.w).toBeGreaterThan(50);
     expect(info.h).toBeGreaterThan(50);
     expect(info.keys).toBe(88);
-    // Esc closes it
-    await page.keyboard.press("Escape");
-    await page.waitForTimeout(200);
-    expect(await page.isVisible("#pianoRollModal")).toBe(false);
+    await page.click("#ioPreviewClose");
+    await page.waitForTimeout(150);
+    expect(await page.isVisible("#ioPreview")).toBe(false);
     expect(errors).toEqual([]);
     await page.close();
   }, 30_000);

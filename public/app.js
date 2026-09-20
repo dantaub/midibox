@@ -1407,6 +1407,7 @@ function handlePlaybackStatus(data) {
         progressContainer.classList.add('active')
         btnPlayback.disabled = true
         btnStop.disabled = false
+        btnStopFile.disabled = false
         $('timelineStop').disabled = false
         $('timelinePlaySelection').disabled = true
     } else if (data.status === 'ended') {
@@ -1415,6 +1416,7 @@ function handlePlaybackStatus(data) {
         progressContainer.classList.remove('active')
         btnPlayback.disabled = false
         btnStop.disabled = true
+        btnStopFile.disabled = true
         $('timelineStop').disabled = true
         updatePlayButtons()
         clearPlaybackNotes()
@@ -2160,6 +2162,7 @@ sessionList.addEventListener('dblclick', async (e) => {
 const midiFileInput = $('midiFileInput')
 const btnSelectFile = $('btnSelectFile')
 const btnPlayFile = $('btnPlayFile')
+const btnStopFile = $('btnStopFile')
 const btnFilePianoRoll = $('btnFilePianoRoll')
 const btnFileScore = $('btnFileScore')
 const fileInfo = $('fileInfo')
@@ -2178,6 +2181,14 @@ midiFileInput.addEventListener('change', async (e) => {
     btnFileScore.disabled = true
     fileInfo.textContent = `${file.name} (${(file.size / 1024).toFixed(1)} KB) — parsing…`
 
+    // Remember the import in the browser (not on the server) and refresh the list
+    try {
+        await saveImport(file)
+        if (typeof loadRecentImports === 'function') loadRecentImports()
+    } catch (err) {
+        console.error('Failed to store import:', err)
+    }
+
     // Parse for preview (does not store or play). Playing uses /api/playback/file.
     try {
         const formData = new FormData()
@@ -2195,8 +2206,16 @@ midiFileInput.addEventListener('change', async (e) => {
     }
 })
 
+btnStopFile.addEventListener('click', async () => {
+    try {
+        await fetch('/api/playback/stop', { method: 'POST' })
+    } catch (err) {
+        console.error('Stop failed:', err)
+    }
+})
+
 btnFilePianoRoll.addEventListener('click', () => {
-    if (importedEvents.length) openPianoRollPopup(importedEvents, { title: selectedMidiFile?.name || 'MIDI file' })
+    if (importedEvents.length) openIOPianoRoll(importedEvents, { title: selectedMidiFile?.name || 'MIDI file' })
 })
 
 btnFileScore.addEventListener('click', () => {

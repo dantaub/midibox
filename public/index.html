@@ -220,18 +220,35 @@
 
     <!-- Import / Export tab -->
     <section class="view io-view hidden" id="viewIO">
+        <!-- Inline preview: the piano roll expands here (no modal) -->
+        <div class="card io-card io-preview hidden" id="ioPreview">
+            <div class="io-preview-header">
+                <span class="io-preview-title" id="ioPreviewTitle">Piano roll</span>
+                <button class="btn-icon" id="ioPreviewClose" title="Close">&#x2715;</button>
+            </div>
+            <div class="io-preview-body" id="ioPreviewBody"></div>
+        </div>
+
         <div class="card io-card">
             <h2>Import a MIDI file</h2>
-            <p class="io-hint">Load a <code>.mid</code> to preview or play. It is not saved to your recordings.</p>
+            <p class="io-hint">Load a <code>.mid</code> to preview or play. Recent imports are kept in your browser, not on the server.</p>
             <div class="controls">
                 <input type="file" id="midiFileInput" accept=".mid,.midi" hidden>
                 <button class="btn btn-secondary" id="btnSelectFile">Select File</button>
                 <div id="fileInfo" class="file-info"></div>
                 <div class="io-actions">
-                    <button class="btn btn-primary btn-file-play" id="btnPlayFile" disabled>&#x25B6; Play File</button>
+                    <button class="btn btn-primary btn-file-play" id="btnPlayFile" disabled>&#x25B6; Play</button>
+                    <button class="btn btn-stop" id="btnStopFile" disabled>&#x23F9; Stop</button>
                     <button class="btn btn-secondary" id="btnFilePianoRoll" disabled>&#x1F3B9; Piano roll</button>
                     <button class="btn btn-secondary" id="btnFileScore" disabled>&#x1D11E; Score</button>
                 </div>
+            </div>
+        </div>
+
+        <div class="card io-card">
+            <h2>Recent imports</h2>
+            <div class="io-recent-list" id="ioRecentList">
+                <div class="history-empty">No imports yet.</div>
             </div>
         </div>
 
@@ -243,17 +260,6 @@
             </div>
         </div>
     </section>
-
-    <!-- Piano-roll popup (reuses the main piano+timeline component) -->
-    <div class="modal-overlay hidden" id="pianoRollModal">
-        <div class="modal">
-            <div class="modal-header">
-                <span class="modal-title" id="pianoRollModalTitle">Piano roll</span>
-                <button class="modal-close" id="pianoRollModalClose" title="Close">&#x2715;</button>
-            </div>
-            <div class="modal-body piano-roll-modal-body" id="pianoRollModalBody"></div>
-        </div>
-    </div>
 
     <!-- Floating event log window (toggled from the header) -->
     <div class="floating-panel hidden" id="eventLogPanel">
@@ -281,9 +287,9 @@
     </div>
 
     <script src="piano-roll.js"></script>
+    <script src="imports-db.js"></script>
     <script src="app.js"></script>
     <script src="history.js"></script>
-    <script src="popup.js"></script>
     <script src="io.js"></script>
 </body>
 

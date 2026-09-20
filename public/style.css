@@ -1527,13 +1527,14 @@ main,
 	margin-top: 0.5rem;
 }
 
-.io-session-list {
+.io-session-list,
+.io-recent-list {
 	display: flex;
 	flex-direction: column;
 	gap: 0.4rem;
 }
 
-.io-session {
+.io-item {
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
@@ -1544,28 +1545,72 @@ main,
 	border-radius: 6px;
 }
 
-.io-session .title {
+.io-item .title {
 	font-weight: 600;
 }
 
-.io-session .meta {
+.io-item .meta {
 	color: #888;
 	font-size: 0.8rem;
 }
 
-.io-session-actions {
+.io-item-actions {
 	display: flex;
 	align-items: center;
 	gap: 0.35rem;
 	flex-shrink: 0;
 }
 
-.io-session-actions .btn-icon,
-.io-session-actions a.btn-icon {
+/* All row actions share one button style, whether <button> or <a download> */
+.io-item-actions .btn-icon,
+.io-item-actions a.btn-icon {
 	text-decoration: none;
-	font-size: 1.1em;
 	line-height: 1;
-	padding: 0.25rem 0.4rem;
+	white-space: nowrap;
+	padding: 0.3rem 0.5rem;
+	border: 1px solid #2e2e52;
+	border-radius: 5px;
+	background: #1c1c34;
+}
+
+.io-item-actions .btn-icon:hover,
+.io-item-actions a.btn-icon:hover {
+	background: #26264a;
+	color: #fff;
+}
+
+/* Inline piano-roll preview: expands on the page (no modal) */
+.io-preview-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	margin-bottom: 0.5rem;
+}
+
+.io-preview-title {
+	font-weight: 600;
+}
+
+.io-preview-body {
+	display: flex;
+	flex-direction: column;
+	height: 55vh;
+	overflow: hidden;
+}
+
+/* Read-only piano roll: no interaction cursors */
+.io-preview-body .timeline-container,
+.piano-roll-modal-body .timeline-container {
+	flex: 1;
+	min-height: 0;
+	cursor: default;
+}
+
+.io-preview-body .white-key,
+.io-preview-body .black-key,
+.piano-roll-modal-body .white-key,
+.piano-roll-modal-body .black-key {
+	cursor: default;
 }
 
 /* ===========================================
