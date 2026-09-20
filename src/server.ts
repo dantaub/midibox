@@ -465,7 +465,6 @@ async function playbackEvents(events: MidiEvent[], clients: Set<ServerWebSocket<
         progress: totalDuration > 0 ? (e.timestamp - startTime) / totalDuration : 1,
         eventIndex: index,
         totalEvents: events.length,
-        serverTime: Date.now(),
       }),
     clients
   );
@@ -527,7 +526,6 @@ async function playbackMidiFile(events: MidiFileEvent[], clients: Set<ServerWebS
         progress: totalDuration > 0 ? e.timeMs / totalDuration : 1,
         eventIndex: index,
         totalEvents: events.length,
-        serverTime: Date.now(),
       }),
     clients
   );

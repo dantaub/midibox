@@ -22,11 +22,21 @@ bun run scripts/timer-jitter.ts [intervalMs] [samples]
 ```
 Pure `setTimeout` jitter. If this is sub-ms but real playback lateness is high,
 the delay is **work on the event loop**, not the timers. (On a Pi 4 this reads
-~0.1 ms; the playback path measured ~0.4 ms once a stray capture→SQLite write
-was removed.)
+~0.1 ms.)
 
-Playback lateness itself is logged by the server: set
-`MIDIBOX_PLAYBACK_DEBUG=1` for a per-batch line plus an avg/max summary.
+### Server-side debug logging
+Two env vars make the server log timing to stdout (or `journalctl` for the
+service):
+
+- `MIDIBOX_PLAYBACK_DEBUG=1` — per-batch scheduling lateness during playback,
+  plus an avg/max summary. Tells you if playback timing drifts.
+- `MIDIBOX_CAPTURE_DEBUG=1` — per captured event, the driver-layer arrival gap
+  (RtMidi `deltaTime`) vs the stored `Date.now()` gap vs processing time. Tells
+  you if the **capture** path is inflating a chord's spacing. This is how the
+  arpeggiated-recording bug was found: a synchronous fsynced insert per event
+  stalled the loop, so `storedΔ` ballooned while `arrivalΔ` stayed ~5 ms. Note:
+  measure against the **real DB on its real disk** — a DB in `/tmp` (tmpfs) has
+  no fsync cost and hides exactly this.
 
 ## Database
 

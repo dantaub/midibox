@@ -27,6 +27,19 @@ beforeEach(() => {
   db.run("DELETE FROM sessions");
 });
 
+describe("write path", () => {
+  // Guards the fix for chords recording arpeggiated: a synchronous fsync per
+  // insert (rollback-journal mode) stalled the event loop 50-140 ms on an SD
+  // card, inflating each event's timestamp. WAL + synchronous=NORMAL keeps
+  // inserts off the fsync path.
+  test("runs in WAL with synchronous=NORMAL", () => {
+    const jm = db.query("PRAGMA journal_mode").get() as { journal_mode: string };
+    const sync = db.query("PRAGMA synchronous").get() as { synchronous: number };
+    expect(jm.journal_mode).toBe("wal");
+    expect(sync.synchronous).toBe(1); // 1 = NORMAL
+  });
+});
+
 describe("events", () => {
   test("round-trip a note", () => {
     note(BASE, 64, 100);
