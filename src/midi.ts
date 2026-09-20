@@ -274,6 +274,20 @@ export function playEvent(event: MidiEvent): void {
   activeOutput.send(data);
 }
 
+// MIDI panic: silence every channel. Used when playback is stopped mid-note, so
+// note-ons whose note-offs never got sent don't leave the synth droning. Sends
+// sustain-off, all-notes-off and all-sound-off on all 16 channels.
+export function allNotesOff(): void {
+  if (!activeOutput) return;
+  for (let ch = 0; ch < 16; ch++) {
+    try {
+      activeOutput.send([0xb0 | ch, 0x40, 0x00]); // CC 64  - sustain off
+      activeOutput.send([0xb0 | ch, 0x7b, 0x00]); // CC 123 - all notes off
+      activeOutput.send([0xb0 | ch, 0x78, 0x00]); // CC 120 - all sound off
+    } catch {}
+  }
+}
+
 export async function closeOutput(): Promise<void> {
   if (activeOutput) {
     try {

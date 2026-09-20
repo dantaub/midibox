@@ -1,6 +1,6 @@
 import { getRecent, getRange, createSession, listSessions, updateSessionById, deleteSessionById, getDaySummaries, getActivitySegments, getSessionsInRange, getSessionById, type MidiEvent, type Session } from "./db";
 import { writeMidiFile } from "./midi-file-write";
-import { startCapture, stopCapture, listInputs, listOutputs, openOutput, onMidiEvent, playEvent, closeOutput, sendMidiMessage, enableThru, disableThru, isThruEnabled, getThruOutput, getOutputDevice, getInputDevice, getTransportInfo } from "./midi";
+import { startCapture, stopCapture, listInputs, listOutputs, openOutput, onMidiEvent, playEvent, closeOutput, sendMidiMessage, enableThru, disableThru, isThruEnabled, getThruOutput, getOutputDevice, getInputDevice, getTransportInfo, allNotesOff } from "./midi";
 import { parseMidiFile, getPlayableEvents, type MidiFileEvent } from "./midi-file";
 
 const PORT = Number(process.env.MIDIBOX_PORT ?? process.env.PORT ?? 4000) || 4000;
@@ -379,11 +379,15 @@ let playbackActive = false;
 let playbackAbortController: AbortController | null = null;
 
 function stopPlayback(): void {
+  const wasPlaying = playbackActive || playbackAbortController !== null;
   playbackActive = false;
   if (playbackAbortController) {
     playbackAbortController.abort();
     playbackAbortController = null;
   }
+  // Silence notes whose note-off never got sent (stopped mid-note). Runs
+  // synchronously before the aborted loop resumes, so no straggler follows.
+  if (wasPlaying) allNotesOff();
 }
 
 // Events whose scheduled time is within this window of "now" are sent as one
