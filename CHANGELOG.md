@@ -25,6 +25,11 @@ Two things need attention on an existing install:
   `MIDIBOX_MIDI`; `GET /api/midi/transports` reports what's available.
 - **Input device picker** — a dropdown beside the recording status switches the
   capture device (and folds in Refresh); playback defaults to a matching output.
+- **Align chords (≣)** — a display-only toggle on the timeline that snaps
+  note-ons within ~25 ms to a shared onset, so a hand-played chord (whose notes
+  genuinely arrive a few ms apart) draws as one aligned block when zoomed in.
+  Recording and playback keep the true timestamps; `MIDIBOX_CAPTURE_DEBUG=1`
+  logs arrival-vs-stored timing if you want to see the real spread.
 - **Tighter playback timing** — the scheduler now sends all MIDI due at a
   wake-up back-to-back before any WebSocket work, so a chord's notes go out
   together instead of on separate timer ticks with broadcast serialization

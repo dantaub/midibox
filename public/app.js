@@ -227,6 +227,12 @@ const timeline = {
     // Direction: false = time runs downward, true = upward
     flipped: false,
 
+    // Render-only chord alignment: snap note-ons within this window to a shared
+    // onset when drawing, so a hand-played chord (notes a few ms apart) shows as
+    // one aligned block. The events/DB are never changed.
+    alignChords: false,
+    alignWindowMs: 25,
+
     // Live update rate: a note length (in beats) at a tempo, or a free-running
     // 60Hz redraw when `smooth` is on
     tempo: 120,
@@ -633,6 +639,20 @@ function drawTimeline() {
     }
     for (const [note, data] of activeNotesMap) {
         noteBars.push({ note, start: data.start, end: viewEnd, velocity: data.velocity })
+    }
+
+    // Render-only chord alignment: translate each bar so onsets within the
+    // window share a start time. Preserves duration; leaves timeline.events and
+    // the database untouched.
+    if (timeline.alignChords) {
+        const win = timeline.alignWindowMs
+        let anchor = null
+        for (const bar of [...noteBars].sort((a, b) => a.start - b.start)) {
+            if (anchor === null || bar.start - anchor > win) anchor = bar.start
+            const shift = bar.start - anchor
+            bar.start = anchor
+            bar.end -= shift
+        }
     }
 
     // Draw note bars (vertical: they grow downward as time passes).
@@ -2281,6 +2301,20 @@ const btnPanLeft = $('timelinePanLeft')
 const btnPanRight = $('timelinePanRight')
 const btnLiveToggle = $('btnLiveToggle')
 const btnFlip = $('timelineFlip')
+const btnAlign = $('timelineAlign')
+
+// Render-only chord alignment toggle (see drawTimeline; DB is never changed)
+function setAlignChords(on) {
+    timeline.alignChords = on
+    btnAlign.classList.toggle('active', on)
+    btnAlign.title = on
+        ? `Chords aligned within ${timeline.alignWindowMs} ms (display only) - click to show true timing`
+        : 'Align near-simultaneous notes as chords (display only)'
+    localStorage.setItem('midibox-align-chords', on ? '1' : '0')
+    drawTimeline()
+}
+
+btnAlign.addEventListener('click', () => setAlignChords(!timeline.alignChords))
 
 // Zoom to selection or zoom in on center
 btnZoomIn.addEventListener('click', async () => {
@@ -2516,6 +2550,7 @@ eventLogHeader.addEventListener('touchend', endLogDrag)
 // ===========================================
 updateLiveButton()
 updateDirectionControls()
+setAlignChords(localStorage.getItem('midibox-align-chords') === '1')
 setFullscreen(localStorage.getItem('midibox-fullscreen') === '1')
 connect()
 loadSessions()
