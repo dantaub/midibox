@@ -237,6 +237,15 @@
             </div>
         </div>
 
+        <!-- Inline preview: the piano roll expands directly below the buttons -->
+        <div class="card io-card io-preview hidden" id="ioPreview">
+            <div class="io-preview-header">
+                <span class="io-preview-title" id="ioPreviewTitle">Piano roll</span>
+                <button class="btn-icon" id="ioPreviewClose" title="Close">&#x2715;</button>
+            </div>
+            <div class="io-preview-body" id="ioPreviewBody"></div>
+        </div>
+
         <div class="card io-card">
             <h2>Recent imports</h2>
             <div class="io-recent-list" id="ioRecentList">
@@ -250,15 +259,6 @@
             <div class="io-session-list" id="ioSessionList">
                 <div class="history-empty">Loading&hellip;</div>
             </div>
-        </div>
-
-        <!-- Inline preview: the piano roll expands here (below), with a moving playhead -->
-        <div class="card io-card io-preview hidden" id="ioPreview">
-            <div class="io-preview-header">
-                <span class="io-preview-title" id="ioPreviewTitle">Piano roll</span>
-                <button class="btn-icon" id="ioPreviewClose" title="Close">&#x2715;</button>
-            </div>
-            <div class="io-preview-body" id="ioPreviewBody"></div>
         </div>
     </section>
 

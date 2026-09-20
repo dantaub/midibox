@@ -1512,6 +1512,9 @@ main,
 	max-width: 780px;
 	margin: 0 auto;
 	width: 100%;
+	/* The pane is a fixed-height flex child; let its content scroll */
+	overflow-y: auto;
+	min-height: 0;
 }
 
 .io-card .io-hint {
@@ -1585,10 +1588,16 @@ main,
 	color: #fff;
 }
 
-/* Import actions: equal-width buttons on the row */
+/* Import actions: equal-width buttons, one line, not stretched tall */
+.io-actions {
+	align-items: center;
+}
+
 .io-actions .btn {
 	flex: 1 1 8rem;
 	text-align: center;
+	white-space: nowrap;
+	padding: 0.4rem 0.6rem;
 }
 
 /* Inline piano-roll preview: expands on the page (no modal) */
