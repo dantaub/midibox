@@ -341,23 +341,8 @@ function drawHistoryPreview() {
         historyCtx.stroke()
     }
 
-    // Pair note on/off into bars
-    const active = new Map()
-    const bars = []
-    for (const event of hist.previewEvents) {
-        if (isNoteOn(event)) {
-            active.set(event.note, { start: event.timestamp, velocity: event.velocity })
-        } else if (isNoteOff(event)) {
-            const open = active.get(event.note)
-            if (open) {
-                bars.push({ note: event.note, start: open.start, end: event.timestamp, velocity: open.velocity })
-                active.delete(event.note)
-            }
-        }
-    }
-    for (const [note, open] of active) {
-        bars.push({ note, start: open.start, end: viewEnd, velocity: open.velocity })
-    }
+    // Pair note on/off into bars (shared with the Live view; see piano-roll.js)
+    const bars = pairNoteBars(hist.previewEvents, viewEnd)
 
     const noteHeight = height / 88
     for (const bar of bars) {

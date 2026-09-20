@@ -21,36 +21,10 @@ const isNoteOn = (e) => e.type === 'noteon' && e.velocity > 0
 const isNoteOff = (e) => e.type === 'noteoff' || (e.type === 'noteon' && e.velocity === 0)
 const noteName = (note) => `${noteNames[note % 12]}${Math.floor(note / 12) - 1}`
 
-// Build piano - full 88-key range (A0 to C8)
-const startNote = 21  // A0 (lowest on 88-key piano)
-const endNote = 108   // C8 (highest on 88-key piano)
-const keys = {}
-
-// Keys are sized in percentages so the keyboard always spans the full width,
-// matching the timeline's pitch axis below it (see noteToX)
-const whiteKeys = 52
-const keyUnit = 100 / whiteKeys
-
-let whiteKeyIndex = 0
-for (let note = startNote; note <= endNote; note++) {
-    const noteInOctave = note % 12
-    const isBlack = [1, 3, 6, 8, 10].includes(noteInOctave)
-
-    const key = document.createElement('div')
-    key.dataset.note = note
-
-    if (isBlack) {
-        key.className = 'black-key'
-        key.style.left = `${(whiteKeyIndex - 0.34) * keyUnit}%`
-        key.style.width = `${0.68 * keyUnit}%`
-    } else {
-        key.className = 'white-key'
-        whiteKeyIndex++
-    }
-
-    keys[note] = key
-    piano.appendChild(key)
-}
+// Build the 88-key keyboard (A0 to C8) into #piano. Geometry + key creation
+// live in piano-roll.js so the popup and this view stay pixel-identical;
+// interaction is wired below.
+const keys = buildPianoKeys(piano)
 
 // ===========================================
 // Piano Interaction (Click/Touch)
@@ -281,35 +255,9 @@ function freezeView() {
     if (isLive()) timeline.startTime = getViewEnd() - timeline.detachedDuration
 }
 
-const minNote = 21
-const maxNote = 108
-const noteRange = maxNote - minNote + 1
-
-// Pitch axis geometry, laid out like the piano above: 52 white-key columns
-// with the black keys straddling them.
-const whiteKeyCount = 52
-const noteLayout = (() => {
-    const layout = {}
-    let whiteIndex = 0
-    for (let note = minNote; note <= maxNote; note++) {
-        const isBlack = [1, 3, 6, 8, 10].includes(note % 12)
-        if (isBlack) {
-            layout[note] = { offset: whiteIndex - 0.34, width: 0.68, isBlack }
-        } else {
-            layout[note] = { offset: whiteIndex, width: 1, isBlack }
-            whiteIndex++
-        }
-    }
-    return layout
-})()
-
-// Pixel span of a note on the (horizontal) pitch axis
-function noteToX(note, width) {
-    const unit = width / whiteKeyCount
-    const spot = noteLayout[note]
-    if (!spot) return { x: 0, w: unit }
-    return { x: spot.offset * unit, w: Math.max(2, spot.width * unit) }
-}
+// Pitch bounds for the octave grid; the layout + noteToX live in piano-roll.js.
+const minNote = PITCH_MIN
+const maxNote = PITCH_MAX
 
 async function fetchTimelineEvents(start, end) {
     try {
@@ -627,57 +575,13 @@ function drawTimeline() {
     // Draw session overlays as colored backgrounds
     drawSessionOverlays(width, height, viewStart, viewEnd)
 
-    // Build note on/off pairs for drawing bars
-    const activeNotesMap = new Map()
-    const noteBars = []
-    for (const event of timeline.events) {
-        if (isNoteOn(event)) {
-            activeNotesMap.set(event.note, { start: event.timestamp, velocity: event.velocity })
-        } else if (isNoteOff(event)) {
-            const noteStart = activeNotesMap.get(event.note)
-            if (noteStart) {
-                noteBars.push({ note: event.note, start: noteStart.start, end: event.timestamp, velocity: noteStart.velocity })
-                activeNotesMap.delete(event.note)
-            }
-        }
-    }
-    for (const [note, data] of activeNotesMap) {
-        noteBars.push({ note, start: data.start, end: viewEnd, velocity: data.velocity })
-    }
-
-    // Render-only chord alignment: translate each bar so a chord's onsets share
-    // a start time. Chain notes while consecutive onsets are within alignGapMs
-    // (chord notes arrive at a steady serial rate) and the cluster stays under
-    // alignMaxSpanMs. Preserves duration; leaves timeline.events and the DB
-    // untouched.
+    // Note bars: pair on/off, optionally align chords (display-only), then draw.
+    // The pairing/align/draw live in piano-roll.js, shared with the popup.
+    const noteBars = pairNoteBars(timeline.events, viewEnd)
     if (timeline.alignChords) {
-        const gap = timeline.alignGapMs
-        const maxSpan = timeline.alignMaxSpanMs
-        let anchor = null
-        let prevOrig = null
-        for (const bar of [...noteBars].sort((a, b) => a.start - b.start)) {
-            const orig = bar.start
-            if (anchor === null || orig - prevOrig > gap || orig - anchor > maxSpan) anchor = orig
-            bar.end -= orig - anchor
-            bar.start = anchor
-            prevOrig = orig
-        }
+        alignChordBars(noteBars, timeline.alignGapMs, timeline.alignMaxSpanMs)
     }
-
-    // Draw note bars (vertical: they grow downward as time passes).
-    // White keys first so the narrower black-key bars stay on top.
-    for (const pass of [false, true]) {
-        for (const bar of noteBars) {
-            const spot = noteToX(bar.note, width)
-            const isBlack = [1, 3, 6, 8, 10].includes(bar.note % 12)
-            if (isBlack !== pass) continue
-            const yA = ty(bar.start)
-            const yB = ty(bar.end)
-            const brightness = 50 + (bar.velocity / 127) * 50
-            ctx.fillStyle = isBlack ? `hsl(340, 80%, ${brightness}%)` : `hsl(160, 70%, ${brightness}%)`
-            ctx.fillRect(spot.x, Math.min(yA, yB), spot.w - 1, Math.max(2, Math.abs(yB - yA)))
-        }
-    }
+    drawNoteBarsVertical(ctx, noteBars, width, ty)
 
     // Draw selection overlay (a horizontal band spanning all pitches)
     if (timeline.selection) {
