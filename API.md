@@ -70,6 +70,7 @@ sparkline without fetching the events.
 | `POST` | `/api/sessions` | `{start_time, end_time, performer?, song_name?}` | `201 {id}` |
 | `PUT` | `/api/sessions/:id` | same | `{success: true}` or `404` |
 | `DELETE` | `/api/sessions/:id` | — | `{success: true}` or `404` |
+| `GET` | `/api/sessions/:id/export.mid` | — | The session as a Standard MIDI File (`audio/midi` download) |
 
 ```bash
 curl -X POST localhost:4000/api/sessions -H 'content-type: application/json' \
@@ -87,6 +88,7 @@ curl -X POST localhost:4000/api/sessions -H 'content-type: application/json' \
 | `POST` | `/api/midi/input` | `{input}` — switch recording device (stop + start) |
 | `POST` | `/api/midi/start` | `{input?}` — (re)start capture |
 | `POST` | `/api/midi/stop` | Stop capture |
+| `POST` | `/api/midi/file/parse` | multipart `file` (a `.mid`) → `{fileName, durationMs, format, tracks, events}` for preview. Not stored. |
 
 Device ids may be **scheme-qualified** — `seq:USB Keyboard MIDI 1`,
 `rawalsa:/dev/snd/midiC1D0`, `rtpm:225.0.0.37:21928`, `rtp:host:5004` — or a bare

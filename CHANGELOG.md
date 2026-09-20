@@ -29,6 +29,13 @@ Two things need attention on an existing install:
 
 ### Added
 
+- **Import / Export tab** — export any recorded session to a Standard MIDI File
+  (`GET /api/sessions/:id/export.mid`), import a `.mid` for preview/play without
+  saving it (`POST /api/midi/file/parse`), and view either in a **piano-roll
+  popup** that reuses the main keyboard + vertical timeline. The Live view,
+  History preview and popup now share one `piano-roll.js` component (geometry,
+  note pairing, chord-align, rendering), and the "Load MIDI" control moved here.
+  (Score view is planned; see NEXT_STEPS.)
 - **Pluggable MIDI transports** — device I/O now sits behind a transport
   interface selected by an address scheme. Linux defaults to the ALSA sequencer
   by name (`seq`, via `@julusian/midi`/RtMidi), which is PipeWire-shareable and

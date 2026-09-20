@@ -28,20 +28,20 @@ ship cold data to the cloud). Keeps the SD card and backups bounded.
 - *Effort:* small–medium. *First move:* a `DELETE FROM midi_events WHERE ...`
   maintenance query behind an endpoint or a scheduled task, plus a config knob.
 
-## 2. Export a session to a Standard MIDI File
+## 2. Import/Export tab — ✅ shipped (except score view)
 
-**Why:** MidiBox can *play* `.mid` files but can't *export* what it recorded.
-Round-trip (record → `.mid` → DAW / notation) is the biggest feature gap, and
-the recordings are already captured with millisecond timing.
+Done: the **Import / Export** tab, a shared `public/piano-roll.js` component
+(Live + History preview + popup), session **export** to `.mid`
+(`GET /api/sessions/:id/export.mid`, `src/midi-file-write.ts`), `.mid` **import**
+for preview/play (`POST /api/midi/file/parse`), and the **piano-roll popup**.
 
-- *Effort:* medium. The SMF *parser* exists (`src/midi-file.ts`); this is the
-  mirror image — a writer.
-- *First move:* `GET /api/sessions/:id/export.mid` (and/or export a timeline
-  selection). Build a format-0 or format-1 track from `getRange(start, end)`,
-  converting absolute ms timestamps to delta ticks at a chosen PPQ/tempo. A
-  "Download MIDI" button on the session/selection UI.
-- *Watch out:* tempo is implicit in the recording (real-time timestamps); pick a
-  PPQ and either a fixed tempo or infer one, and document the choice.
+**Still to do — the score view (VexFlow).** Vendor VexFlow's UMD build into
+`public/vendor/`, add `public/score.js`, and render a session/imported file as
+notation in a modal (`openScoreView(events, {title})` is already referenced by
+the IO tab and the imported-file "Score" button). MIDI→notation needs
+quantization, 4/4 measures, and accidental mapping; document that timing is
+quantized and key/time signature are assumed. It's the most heuristic piece and
+was deliberately left last.
 
 ## 3. Analysis on the recordings
 
