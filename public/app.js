@@ -2311,17 +2311,38 @@ const btnPanRight = $('timelinePanRight')
 const btnLiveToggle = $('btnLiveToggle')
 const btnFlip = $('timelineFlip')
 const btnAlign = $('timelineAlign')
+const alignGapGroup = $('alignGapGroup')
+const alignGapInput = $('timelineAlignGap')
+const alignGapReadout = $('alignGapReadout')
 
-// Render-only chord alignment toggle (see drawTimeline; DB is never changed)
+// Render-only chord alignment toggle (see drawTimeline; DB is never changed).
+// The gap slider appears beside it only while alignment is on.
 function setAlignChords(on) {
     timeline.alignChords = on
     btnAlign.classList.toggle('active', on)
     btnAlign.title = on
         ? `Chords aligned (notes within ${timeline.alignGapMs} ms, display only) - click to show true timing`
         : 'Align near-simultaneous notes as chords (display only)'
+    alignGapGroup.classList.toggle('hidden', !on)
     localStorage.setItem('midibox-align-chords', on ? '1' : '0')
     drawTimeline()
 }
+
+// The max onset gap (ms) that still counts as one chord, persisted on its own.
+function loadAlignGap() {
+    const saved = parseInt(localStorage.getItem('midibox-align-gap') || '', 10)
+    if (Number.isFinite(saved) && saved >= 2 && saved <= 40) timeline.alignGapMs = saved
+    alignGapInput.value = String(timeline.alignGapMs)
+    alignGapReadout.textContent = `${timeline.alignGapMs}ms`
+}
+
+alignGapInput.addEventListener('input', () => {
+    timeline.alignGapMs = parseInt(alignGapInput.value, 10) || timeline.alignGapMs
+    alignGapReadout.textContent = `${timeline.alignGapMs}ms`
+    btnAlign.title = `Chords aligned (notes within ${timeline.alignGapMs} ms, display only) - click to show true timing`
+    localStorage.setItem('midibox-align-gap', String(timeline.alignGapMs))
+    if (timeline.alignChords) drawTimeline()
+})
 
 btnAlign.addEventListener('click', () => setAlignChords(!timeline.alignChords))
 
@@ -2559,6 +2580,7 @@ eventLogHeader.addEventListener('touchend', endLogDrag)
 // ===========================================
 updateLiveButton()
 updateDirectionControls()
+loadAlignGap()
 setAlignChords(localStorage.getItem('midibox-align-chords') === '1')
 setFullscreen(localStorage.getItem('midibox-fullscreen') === '1')
 connect()

@@ -29,7 +29,8 @@ Two things need attention on an existing install:
   chord's onsets at a shared time. Notes are chained while consecutive onsets
   are within ~12 ms (a chord arrives at a steady serial rate on a USB-DIN
   adapter, ~5 ms/note, so even a 7-note chord spanning ~30 ms groups, while
-  deliberate arpeggios don't), capped at 60 ms. Recording and playback keep the
+  deliberate arpeggios don't), capped at 60 ms and adjustable with a slider that
+  appears beside the toggle. Recording and playback keep the
   true timestamps; `MIDIBOX_CAPTURE_DEBUG=1` logs arrival-vs-stored timing to
   confirm the spread is upstream (adapter), not software.
 - **Tighter playback timing** — the scheduler now sends all MIDI due at a

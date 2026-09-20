@@ -110,6 +110,10 @@
 
                     <div class="timeline-controls-side timeline-controls-right">
                         <button id="timelineAlign" class="btn-icon" title="Align near-simultaneous notes as chords (display only)">&#x2263;</button>
+                        <span class="align-gap hidden" id="alignGapGroup">
+                            <input type="range" id="timelineAlignGap" min="2" max="40" step="1" value="12" title="Max gap between chord notes (ms)">
+                            <span class="align-gap-readout" id="alignGapReadout">12ms</span>
+                        </span>
                         <button id="timelineFullscreen" class="btn-icon" title="Fullscreen">&#x26F6;</button>
                         <button id="timelineFlip" class="btn-icon" title="Flip timeline direction">&#x21C5;</button>
                     </div>
