@@ -169,6 +169,11 @@ than fail, so `bun run test:all` works on a machine with no browser.
   because the redraw path touches it and 60 Hz would mean 60 writes a second.
 - **The database grows forever.** Roughly 50 MB per million events (measured at
   47 bytes each); there is no pruning yet.
+- **Capture writes synchronously on the event loop.** One fsynced insert per
+  event; with the default rollback journal on an SD card that stalled 50-140 ms
+  per event and inflated chord timing. The DB now opens in WAL with
+  `synchronous=NORMAL` (src/db.ts) to keep inserts sub-millisecond. If capture
+  ever needs to scale further, batch the inserts or move them off the hot path.
 - **A "chord" is never simultaneous.** MIDI is serial — each 3-byte note-on
   takes ~1 ms on a DIN link, so chord notes arrive a millisecond or so apart by
   protocol, before any software. On top of that, capture timestamps with

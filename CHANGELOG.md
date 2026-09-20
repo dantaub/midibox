@@ -13,6 +13,19 @@ Two things need attention on an existing install:
   columns added by an earlier version, the index on one of them, and the
   `settings` table. Nothing reads them any more, but take a backup first if you
   want the option of going back: `cp midibox.db midibox-backup.db`.
+- **The database now runs in WAL mode** (set automatically on first open). Two
+  sidecar files appear next to it, `midibox.db-wal` and `midibox.db-shm`. To
+  back up, prefer `sqlite3 midibox.db ".backup ..."`, or stop the service first
+  so the WAL is checkpointed before you `cp`.
+
+### Fixed
+
+- **Chords no longer record/play back arpeggiated.** Capture wrote each event
+  with a synchronous, fully-fsynced SQLite insert; on an SD card that stalled
+  the event loop 50-140 ms per event, so a chord's notes were timestamped tens
+  of ms apart even though they arrived ~5 ms apart. Switching to WAL +
+  `synchronous=NORMAL` cuts per-insert latency to sub-millisecond, so recorded
+  (and therefore replayed and drawn) timing matches what was played.
 
 ### Added
 

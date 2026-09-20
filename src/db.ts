@@ -6,6 +6,18 @@ const DB_PATH = process.env.MIDIBOX_DB || "midibox.db";
 
 const db = new Database(DB_PATH, { create: true });
 
+// Capture writes one row per MIDI event, synchronously, on the server's event
+// loop. The default rollback journal (`delete`) fsyncs the whole database on
+// every insert; on an SD card that fsync can stall 50-140 ms, which blocks the
+// next event's callback and inflates its Date.now() timestamp - so a chord's
+// notes get recorded (and played back, and drawn) tens of ms apart even though
+// they arrived ~5 ms apart. WAL appends writes sequentially and, with
+// synchronous=NORMAL, fsyncs only at checkpoints, cutting per-insert latency to
+// sub-millisecond. The durability cost is at most the last few events on a
+// power loss, which is fine for a MIDI recorder.
+db.run("PRAGMA journal_mode = WAL");
+db.run("PRAGMA synchronous = NORMAL");
+
 // Initialize schema
 db.run(`
   CREATE TABLE IF NOT EXISTS midi_events (
