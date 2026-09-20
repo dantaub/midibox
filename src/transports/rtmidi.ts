@@ -26,18 +26,29 @@ async function getRtMidi() {
 const OWN_CLIENT = /RtMidi (Input|Output) Client/;
 const realPorts = (names: string[]): string[] => names.filter((n) => !OWN_CLIENT.test(n));
 
+// Dummy/loopback/virtual ports that ALSA always exposes. They shouldn't be the
+// automatic default - "Midi Through" is index 0 on every ALSA system, which is
+// why auto-capture used to grab a dead port instead of the keyboard.
+const NOT_REAL = /Midi Through|RtMidi (Input|Output) Client|VirMIDI|Virtual/i;
+
+// Auto-select index: first real hardware port, else the first port (all virtual)
+// or -1 when there are none. Exported for tests.
+export function pickDefaultPort(names: string[]): number {
+  if (names.length === 0) return -1;
+  const real = names.findIndex((n) => !NOT_REAL.test(n));
+  return real >= 0 ? real : 0;
+}
+
 function findPort(port: any, name: string | undefined): number {
   const count = port.getPortCount();
   if (count === 0) return -1;
+  const names = Array.from({ length: count }, (_, i) => port.getPortName(i) as string);
   if (name) {
     // A named device that isn't present must fail, not silently open a
     // different one - callers rely on this to surface a bad selection.
-    for (let i = 0; i < count; i++) {
-      if (port.getPortName(i) === name) return i;
-    }
-    return -1;
+    return names.indexOf(name);
   }
-  return 0; // no name -> first available
+  return pickDefaultPort(names); // no name -> prefer real hardware
 }
 
 export class RtMidiTransport implements MidiTransport {

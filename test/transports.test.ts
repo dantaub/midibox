@@ -1,6 +1,7 @@
 import { test, expect, describe } from "bun:test";
 import { parseAddress } from "../src/transports/types";
 import { resolveScheme } from "../src/transports/select";
+import { pickDefaultPort } from "../src/transports/rtmidi";
 import { encodeRtpMidi, decodeRtpMidi } from "../src/transports/rtpmidi";
 
 const schemes = ["seq", "rawalsa", "coremidi", "rtp", "rtpm"] as const;
@@ -78,6 +79,29 @@ describe("resolveScheme", () => {
       rest: "225.0.0.37:21928",
       explicit: true,
     });
+  });
+});
+
+describe("pickDefaultPort", () => {
+  test("prefers real hardware over Midi Through / Virtual", () => {
+    const names = [
+      "Midi Through:Midi Through Port-0 14:0",
+      "USB Uno MIDI Interface:USB Uno MIDI Interface MIDI 1 28:0",
+      "Virtual Raw MIDI 4-0:VirMIDI 4-0 32:0",
+    ];
+    expect(pickDefaultPort(names)).toBe(1);
+  });
+
+  test("falls back to the first port when all are virtual", () => {
+    expect(pickDefaultPort(["Midi Through:...", "Virtual Raw MIDI 4-0:VirMIDI 4-0 32:0"])).toBe(0);
+  });
+
+  test("takes the only real port", () => {
+    expect(pickDefaultPort(["USB Uno MIDI Interface:... 28:0"])).toBe(0);
+  });
+
+  test("returns -1 for no ports", () => {
+    expect(pickDefaultPort([])).toBe(-1);
   });
 });
 
