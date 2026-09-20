@@ -3,6 +3,8 @@ import { expect, test, describe, beforeAll, afterAll } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { writeMidiFile } from "../src/midi-file-write";
+import type { MidiEvent } from "../src/db";
 
 const dir = mkdtempSync(join(tmpdir(), "midibox-api-"));
 const PORT = 4000 + Math.floor(Math.random() * 500) + 100;
@@ -127,5 +129,29 @@ describe("websocket", () => {
     });
     ws.close();
     expect(JSON.parse(reply).type).toBe("pong");
+  });
+});
+
+describe("midi file parse (import preview)", () => {
+  test("parses an uploaded .mid into note events", async () => {
+    const bytes = writeMidiFile([
+      { timestamp: 0, channel: 0, type: "noteon", note: 60, velocity: 90 },
+      { timestamp: 500, channel: 0, type: "noteoff", note: 60, velocity: 0 },
+    ] as MidiEvent[]);
+    const fd = new FormData();
+    fd.append("file", new File([bytes], "t.mid", { type: "audio/midi" }));
+
+    const res = await api("/api/midi/file/parse", { method: "POST", body: fd });
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    const ons = data.events.filter((e: any) => e.type === "noteon" && e.velocity > 0);
+    expect(ons).toHaveLength(1);
+    expect(ons[0].note).toBe(60);
+    expect(ons[0].timestamp).toBe(0);
+  });
+
+  test("rejects a request with no file", async () => {
+    const res = await api("/api/midi/file/parse", { method: "POST", body: new FormData() });
+    expect(res.status).toBe(400);
   });
 });

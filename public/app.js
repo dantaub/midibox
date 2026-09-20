@@ -2160,17 +2160,48 @@ sessionList.addEventListener('dblclick', async (e) => {
 const midiFileInput = $('midiFileInput')
 const btnSelectFile = $('btnSelectFile')
 const btnPlayFile = $('btnPlayFile')
+const btnFilePianoRoll = $('btnFilePianoRoll')
+const btnFileScore = $('btnFileScore')
 const fileInfo = $('fileInfo')
 let selectedMidiFile = null
+let importedEvents = []   // parsed note events of the selected file (timestamp = ms)
 
 btnSelectFile.addEventListener('click', () => midiFileInput.click())
 
-midiFileInput.addEventListener('change', (e) => {
+midiFileInput.addEventListener('change', async (e) => {
     const file = e.target.files[0]
-    if (file) {
-        selectedMidiFile = file
-        fileInfo.textContent = `${file.name} (${(file.size / 1024).toFixed(1)} KB)`
-        btnPlayFile.disabled = false
+    if (!file) return
+    selectedMidiFile = file
+    importedEvents = []
+    btnPlayFile.disabled = false
+    btnFilePianoRoll.disabled = true
+    btnFileScore.disabled = true
+    fileInfo.textContent = `${file.name} (${(file.size / 1024).toFixed(1)} KB) — parsing…`
+
+    // Parse for preview (does not store or play). Playing uses /api/playback/file.
+    try {
+        const formData = new FormData()
+        formData.append('file', file)
+        const res = await fetch('/api/midi/file/parse', { method: 'POST', body: formData })
+        const data = await res.json()
+        if (data.error) throw new Error(data.error)
+        importedEvents = data.events || []
+        const notes = importedEvents.filter(isNoteOn).length
+        fileInfo.textContent = `${data.fileName} — ${notes} notes, ${Math.round(data.durationMs / 1000)}s`
+        btnFilePianoRoll.disabled = importedEvents.length === 0
+        btnFileScore.disabled = importedEvents.length === 0
+    } catch (err) {
+        fileInfo.textContent = `${file.name} — could not parse (${err.message}); play may still work`
+    }
+})
+
+btnFilePianoRoll.addEventListener('click', () => {
+    if (importedEvents.length) openPianoRollPopup(importedEvents, { title: selectedMidiFile?.name || 'MIDI file' })
+})
+
+btnFileScore.addEventListener('click', () => {
+    if (importedEvents.length && typeof openScoreView === 'function') {
+        openScoreView(importedEvents, { title: selectedMidiFile?.name || 'MIDI file' })
     }
 })
 

@@ -306,6 +306,32 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
       return json({ status: "stopped" });
     }
 
+    // POST /api/midi/file/parse - parse a MIDI file to events for preview (not stored)
+    if (path === "/midi/file/parse" && method === "POST") {
+      const formData = await req.formData();
+      const file = formData.get("file") as File;
+      if (!file) return json({ error: "No file provided" }, 400);
+      const midiFile = parseMidiFile(await file.arrayBuffer());
+      // Shape like recorded events (timestamp = ms from start) so the piano-roll
+      // and score render them the same way.
+      const events = getPlayableEvents(midiFile).map((e) => ({
+        timestamp: e.timeMs,
+        channel: e.channel,
+        type: e.type,
+        note: e.note,
+        velocity: e.velocity,
+        control: e.control,
+        value: e.value,
+      }));
+      return json({
+        fileName: file.name,
+        durationMs: midiFile.durationMs,
+        format: midiFile.format,
+        tracks: midiFile.trackCount,
+        events,
+      });
+    }
+
     // POST /api/playback/file - Upload and play a MIDI file
     if (path === "/playback/file" && method === "POST") {
       const formData = await req.formData();
