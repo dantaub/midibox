@@ -1500,3 +1500,70 @@ main,
 		gap: 0.2rem;
 	}
 }
+
+/* ===========================================
+   Import / Export tab
+   =========================================== */
+.io-view {
+	display: flex;
+	flex-direction: column;
+	gap: 1rem;
+	padding: 1rem;
+	max-width: 780px;
+	margin: 0 auto;
+	width: 100%;
+}
+
+.io-card .io-hint {
+	color: #888;
+	font-size: 0.85rem;
+	margin: 0.25rem 0 0.75rem;
+}
+
+.io-actions {
+	display: flex;
+	gap: 0.5rem;
+	flex-wrap: wrap;
+	margin-top: 0.5rem;
+}
+
+.io-session-list {
+	display: flex;
+	flex-direction: column;
+	gap: 0.4rem;
+}
+
+.io-session {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.75rem;
+	padding: 0.5rem 0.75rem;
+	background: #16162a;
+	border: 1px solid #26264a;
+	border-radius: 6px;
+}
+
+.io-session .title {
+	font-weight: 600;
+}
+
+.io-session .meta {
+	color: #888;
+	font-size: 0.8rem;
+}
+
+.io-session-actions {
+	display: flex;
+	align-items: center;
+	gap: 0.35rem;
+	flex-shrink: 0;
+}
+
+.io-session-actions .btn-icon,
+.io-session-actions a.btn-icon {
+	text-decoration: none;
+	font-size: 1.1em;
+	line-height: 1;
+	padding: 0.25rem 0.4rem;
+}

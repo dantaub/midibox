@@ -165,6 +165,10 @@ export function listSessions(): Session[] {
   return getSessions.all() as Session[];
 }
 
+export function getSessionById(id: number): Session | null {
+  return (db.query("SELECT * FROM sessions WHERE id = ?").get(id) as Session) ?? null;
+}
+
 export function updateSessionById(id: number, session: Session): boolean {
   const result = updateSession.run({
     $id: id,

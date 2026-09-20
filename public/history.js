@@ -10,10 +10,10 @@
 // ===========================================
 const viewLive = $('viewLive')
 const viewHistory = $('viewHistory')
+const views = { live: viewLive, history: viewHistory, io: $('viewIO') }
 
 function switchView(name) {
-    viewLive.classList.toggle('hidden', name !== 'live')
-    viewHistory.classList.toggle('hidden', name !== 'history')
+    for (const [n, el] of Object.entries(views)) el.classList.toggle('hidden', n !== name)
     document.querySelectorAll('#tabs .tab').forEach(tab => {
         tab.classList.toggle('active', tab.dataset.view === name)
     })
@@ -22,9 +22,11 @@ function switchView(name) {
     // Canvases can't be measured while hidden - size them on reveal
     if (name === 'live') {
         resizeCanvas()
-    } else {
+    } else if (name === 'history') {
         resizeHistoryCanvas()
         if (hist.days.length === 0) loadHistoryDays()
+    } else if (name === 'io') {
+        loadIOSessions()
     }
 }
 

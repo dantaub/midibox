@@ -1,4 +1,5 @@
-import { getRecent, getRange, createSession, listSessions, updateSessionById, deleteSessionById, getDaySummaries, getActivitySegments, getSessionsInRange, type MidiEvent, type Session } from "./db";
+import { getRecent, getRange, createSession, listSessions, updateSessionById, deleteSessionById, getDaySummaries, getActivitySegments, getSessionsInRange, getSessionById, type MidiEvent, type Session } from "./db";
+import { writeMidiFile } from "./midi-file-write";
 import { startCapture, stopCapture, listInputs, listOutputs, openOutput, onMidiEvent, playEvent, closeOutput, sendMidiMessage, enableThru, disableThru, isThruEnabled, getThruOutput, getOutputDevice, getInputDevice, getTransportInfo } from "./midi";
 import { parseMidiFile, getPlayableEvents, type MidiFileEvent } from "./midi-file";
 
@@ -146,6 +147,23 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
     if (path === "/sessions" && method === "GET") {
       const sessions = listSessions();
       return json(sessions);
+    }
+
+    // GET /api/sessions/:id/export.mid - the session as a Standard MIDI File
+    const exportMatch = path.match(/^\/sessions\/(\d+)\/export\.mid$/);
+    if (exportMatch && method === "GET") {
+      const id = parseInt(exportMatch[1]!, 10);
+      const session = getSessionById(id);
+      if (!session) return json({ error: "Session not found" }, 404);
+      const events = getRange(session.start_time, session.end_time);
+      const bytes = writeMidiFile(events);
+      const name = (session.song_name || `session-${id}`).replace(/[^a-z0-9_-]+/gi, "_");
+      return new Response(bytes, {
+        headers: {
+          "Content-Type": "audio/midi",
+          "Content-Disposition": `attachment; filename="${name}.mid"`,
+        },
+      });
     }
 
     // POST /api/sessions

@@ -16,7 +16,7 @@
     "midi:timing": "bun run scripts/midi-timing.ts",
     "jitter": "bun run scripts/timer-jitter.ts",
     "db:inspect": "bun run scripts/db-inspect.ts",
-    "test": "bun test test/db.test.ts test/api.test.ts test/transports.test.ts",
+    "test": "bun test test/db.test.ts test/api.test.ts test/transports.test.ts test/midi-file.test.ts",
     "test:ui": "bun test test/ui.test.ts",
     "test:all": "bun test"
   },
