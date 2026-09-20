@@ -13,9 +13,15 @@ export interface MidiTransport {
   listOutputs(): Promise<string[]>;
 
   // Open an input and deliver each complete MIDI message (status + data bytes,
-  // no running status) to `onMessage`. `id` is the scheme-less remainder of the
-  // address, or undefined to pick a sensible default. Returns the opened name.
-  openInput(id: string | undefined, onMessage: (bytes: number[]) => void): Promise<string>;
+  // no running status) to `onMessage`. `deltaTimeMs`, when the transport can
+  // measure it (RtMidi does), is the gap since the previous message at the
+  // driver layer - a ground truth for arrival timing, independent of JS
+  // event-loop jitter. `id` is the scheme-less remainder of the address, or
+  // undefined to pick a sensible default. Returns the opened name.
+  openInput(
+    id: string | undefined,
+    onMessage: (bytes: number[], deltaTimeMs?: number) => void
+  ): Promise<string>;
 
   // Open an output for sending. Returns the opened name.
   openOutput(id?: string): Promise<string>;

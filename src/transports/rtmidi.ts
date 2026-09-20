@@ -76,7 +76,7 @@ export class RtMidiTransport implements MidiTransport {
 
   async openInput(
     id: string | undefined,
-    onMessage: (bytes: number[]) => void
+    onMessage: (bytes: number[], deltaTimeMs?: number) => void
   ): Promise<string> {
     const midi = await getRtMidi();
     const port = new midi.Input();
@@ -88,8 +88,9 @@ export class RtMidiTransport implements MidiTransport {
 
     const name = port.getPortName(idx);
     // Keep RtMidi's defaults: ignore sysex, timing and active sensing, matching
-    // the real-time filtering the other transports do.
-    port.on("message", (_deltaTime: number, message: number[]) => onMessage(message));
+    // the real-time filtering the other transports do. deltaTime (seconds) is
+    // RtMidi's driver-layer inter-message gap; pass it through as ms.
+    port.on("message", (deltaTime: number, message: number[]) => onMessage(message, deltaTime * 1000));
     port.openPort(idx);
     console.log(`Opening ALSA seq input: ${name}`);
 

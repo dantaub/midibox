@@ -117,14 +117,35 @@ function forwardThru(bytes: number[]): void {
   }
 }
 
+const CAPTURE_DEBUG = !!process.env.MIDIBOX_CAPTURE_DEBUG;
+let captureLastStamp: number | null = null;
+
 // The single sink for every captured message, whatever the transport.
-function handleIncoming(bytes: number[]): void {
+// `deltaTimeMs`, when provided (RtMidi), is the driver-layer gap since the
+// previous message - ground truth for arrival timing.
+function handleIncoming(bytes: number[], deltaTimeMs?: number): void {
+  const t0 = CAPTURE_DEBUG ? performance.now() : 0;
   forwardThru(bytes);
   const parsed = parseMidiMessage(bytes);
   if (parsed) {
-    const event: MidiEvent = { timestamp: Date.now(), ...parsed };
+    const timestamp = Date.now();
+    const event: MidiEvent = { timestamp, ...parsed };
     recordEvent(event);
     notifyListeners(event);
+
+    if (CAPTURE_DEBUG) {
+      // storedΔ is the gap between the timestamps we actually record; compare it
+      // to the driver-layer arrival gap (deltaTimeMs) to see how much the
+      // capture path inflates a chord's spacing.
+      const storedD = captureLastStamp === null ? 0 : timestamp - captureLastStamp;
+      captureLastStamp = timestamp;
+      const proc = performance.now() - t0;
+      const rt = deltaTimeMs === undefined ? "?" : deltaTimeMs.toFixed(2);
+      console.log(
+        `[capture] arrivalΔ=${rt}ms storedΔ=${storedD}ms proc=${proc.toFixed(2)}ms ` +
+          `${parsed.type}${parsed.note !== undefined ? " " + parsed.note : ""}`
+      );
+    }
   }
 }
 
