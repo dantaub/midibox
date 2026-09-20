@@ -227,11 +227,15 @@ const timeline = {
     // Direction: false = time runs downward, true = upward
     flipped: false,
 
-    // Render-only chord alignment: snap note-ons within this window to a shared
-    // onset when drawing, so a hand-played chord (notes a few ms apart) shows as
-    // one aligned block. The events/DB are never changed.
+    // Render-only chord alignment: draw a chord's onsets at a shared time. Notes
+    // are chained into one chord while each consecutive onset is within
+    // alignGapMs of the last (chord notes arrive at a near-constant serial rate,
+    // ~5 ms on a USB-DIN adapter, whereas deliberate notes are tens of ms apart),
+    // capped at alignMaxSpanMs so a fast run can't collapse entirely. The
+    // events/DB are never changed.
     alignChords: false,
-    alignWindowMs: 25,
+    alignGapMs: 12,
+    alignMaxSpanMs: 60,
 
     // Live update rate: a note length (in beats) at a tempo, or a free-running
     // 60Hz redraw when `smooth` is on
@@ -641,17 +645,22 @@ function drawTimeline() {
         noteBars.push({ note, start: data.start, end: viewEnd, velocity: data.velocity })
     }
 
-    // Render-only chord alignment: translate each bar so onsets within the
-    // window share a start time. Preserves duration; leaves timeline.events and
-    // the database untouched.
+    // Render-only chord alignment: translate each bar so a chord's onsets share
+    // a start time. Chain notes while consecutive onsets are within alignGapMs
+    // (chord notes arrive at a steady serial rate) and the cluster stays under
+    // alignMaxSpanMs. Preserves duration; leaves timeline.events and the DB
+    // untouched.
     if (timeline.alignChords) {
-        const win = timeline.alignWindowMs
+        const gap = timeline.alignGapMs
+        const maxSpan = timeline.alignMaxSpanMs
         let anchor = null
+        let prevOrig = null
         for (const bar of [...noteBars].sort((a, b) => a.start - b.start)) {
-            if (anchor === null || bar.start - anchor > win) anchor = bar.start
-            const shift = bar.start - anchor
+            const orig = bar.start
+            if (anchor === null || orig - prevOrig > gap || orig - anchor > maxSpan) anchor = orig
+            bar.end -= orig - anchor
             bar.start = anchor
-            bar.end -= shift
+            prevOrig = orig
         }
     }
 
@@ -2308,7 +2317,7 @@ function setAlignChords(on) {
     timeline.alignChords = on
     btnAlign.classList.toggle('active', on)
     btnAlign.title = on
-        ? `Chords aligned within ${timeline.alignWindowMs} ms (display only) - click to show true timing`
+        ? `Chords aligned (notes within ${timeline.alignGapMs} ms, display only) - click to show true timing`
         : 'Align near-simultaneous notes as chords (display only)'
     localStorage.setItem('midibox-align-chords', on ? '1' : '0')
     drawTimeline()
