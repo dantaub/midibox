@@ -19,8 +19,10 @@ set -euo pipefail
 REMOTE_DIR="${MIDIBOX_REMOTE_DIR:-src/midibox}"
 CMD="${1:-$(cat)}"
 
-ssh -o ConnectTimeout=10 "$MIDIBOX_HOST" 'bash -ls' <<EOF
-export PATH="\$HOME/.bun/bin:\$PATH"
-cd "$REMOTE_DIR" || { echo "no such dir: $REMOTE_DIR" >&2; exit 1; }
-$CMD
-EOF
+# Build the remote script and pipe it, so nothing in $CMD (e.g. $!, ${x},
+# $(...)) expands locally - it runs on the host. Only the preamble does.
+{
+  echo 'export PATH="$HOME/.bun/bin:$PATH"'
+  printf 'cd %q || { echo "no such dir: %s" >&2; exit 1; }\n' "$REMOTE_DIR" "$REMOTE_DIR"
+  printf '%s\n' "$CMD"
+} | ssh -o ConnectTimeout=10 "$MIDIBOX_HOST" 'bash -ls'

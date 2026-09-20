@@ -56,20 +56,31 @@ non-interactive PATH, and nested quoting through `ssh '...'` is a trap — pipe 
 heredoc instead.
 
 ### Measuring playback timing on a remote host
-Start a throwaway server on a spare port, aimed at the real DB, then play a
-known range and read the log:
+Start a throwaway server on a spare port aimed at the real DB, stop capture (so
+nothing loops back), auto-pick the most recent activity segment, play it, and
+read the lateness log. Copy-paste as-is — it derives the range itself:
 ```
 MIDIBOX_HOST=dorian@doorian.local ./scripts/remote.sh <<'SH'
-  MIDIBOX_PLAYBACK_DEBUG=1 MIDIBOX_PORT=4200 nohup bun run start >/tmp/mbx.log 2>&1 &
-  echo $! >/tmp/mbx.pid; sleep 3
-  curl -s "localhost:4200/api/history/days?tz=0&limit=3"           # find a day
-  # ... pick a range from an activity segment, then:
-  curl -s -X POST localhost:4200/api/playback/start \
-    -H 'content-type: application/json' -d '{"start":<ms>,"end":<ms>}'
-  sleep <seconds>; grep playback /tmp/mbx.log | tail
-  kill "$(cat /tmp/mbx.pid)"
+MIDIBOX_PLAYBACK_DEBUG=1 MIDIBOX_PORT=4200 nohup bun run start >/tmp/mbx.log 2>&1 &
+echo $! >/tmp/mbx.pid; sleep 3
+curl -s -X POST localhost:4200/api/midi/stop >/dev/null
+bun -e '
+const base="http://localhost:4200";
+const days=await (await fetch(base+"/api/history/days?tz=0&limit=1")).json();
+const d=days[0];
+const seg=await (await fetch(base+"/api/history/segments?start="+d.first_event+"&end="+d.last_event+"&gap=5000")).json();
+const s=seg.segments.find(x=>x.event_count>=8)||seg.segments[0];
+console.log("range",s.start,s.end,"events",s.event_count);
+await fetch(base+"/api/playback/start",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({start:s.start,end:s.end})});
+await new Promise(r=>setTimeout(r,(s.end-s.start)+2000));
+'
+grep playback /tmp/mbx.log | tail -4
+kill "$(cat /tmp/mbx.pid)"
 SH
 ```
+This measures the scheduler only (no output connected, so no sound). To also
+exercise real MIDI out, `POST /api/midi/output {output:"<name>"}` first — but
+pick a port nothing is capturing (see the gotcha below).
 
 **Gotcha:** don't connect the output to a port that the capture is listening on
 (e.g. `Midi Through` while also capturing it) — it loops played notes back into
