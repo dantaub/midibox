@@ -33,10 +33,17 @@ async function seekIOPreview(t) {
     // show stale/stuck-on keys until fresh noteon/noteoff events arrive.
     if (ioPreviewInstance) ioPreviewInstance.clearHighlights()
     try {
+        // Sessions are recorded in the DB, so the server can slice
+        // [newStart, previewEnd] itself. A parsed-but-unstored import (recent
+        // imports) has no DB rows, so we slice the events we already have
+        // client-side and send them along instead.
+        const payload = previewSeekMode === 'events'
+            ? { events: ioPreviewEvents.filter(e => e.timestamp >= newStart && e.timestamp <= previewEnd), output: outputSelect.value || undefined }
+            : { start: newStart, end: previewEnd, output: outputSelect.value || undefined }
         await fetch('/api/playback/start', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ start: newStart, end: previewEnd, output: outputSelect.value || undefined }),
+            body: JSON.stringify(payload),
         })
         // The server now reports progress (0..1) over [newStart, previewEnd],
         // not the original song span - rebase so the interpolated line keeps
@@ -75,6 +82,11 @@ function openIOPianoRoll(events, { title, start, end, anchorKey, anchorEl, force
     const e = end ?? (evs.length ? evs[evs.length - 1].timestamp : s + 1000)
     previewStart = s
     previewEnd = e
+    // 'events' (recent imports): not in the DB, so seeking replays a
+    // client-side slice of these events. Anything else (sessions): the
+    // server slices its own DB range instead.
+    previewSeekMode = seekable === 'events' ? 'events' : 'session'
+    ioPreviewEvents = evs
     stopPreviewPlayhead()
     // Scroll the row that was clicked to the top, not the preview title, so
     // the entry (with its play/stop button) stays visible above the panel.
@@ -106,6 +118,8 @@ window.addEventListener('resize', () => { if (ioPreviewInstance) ioPreviewInstan
 // ---- Moving playhead + lit keys, driven by the playback stream -------------
 let previewStart = 0
 let previewEnd = 1
+let previewSeekMode = 'session'  // 'session' (DB range) or 'events' (client-side slice)
+let ioPreviewEvents = []         // full event list for the open preview, for 'events' mode
 let pbProgress = 0        // last progress (0..1) reported by the server
 let pbAt = 0              // performance.now() when pbProgress was set
 let pbRaf = null
@@ -216,7 +230,7 @@ ioRecentList.addEventListener('click', async (e) => {
     if (e.target.closest('.io-recent-play')) {
         await playMidiBlob(rec.data, rec.name)
     } else if (e.target.closest('.io-recent-piano')) {
-        openIOPianoRoll(await parseMidiBlob(rec.data, rec.name), { title, anchorKey: `recent:${id}`, anchorEl: row })
+        openIOPianoRoll(await parseMidiBlob(rec.data, rec.name), { title, anchorKey: `recent:${id}`, anchorEl: row, seekable: 'events' })
     } else if (e.target.closest('.io-recent-score')) {
         if (typeof openScoreView === 'function') openScoreView(await parseMidiBlob(rec.data, rec.name), { title })
     } else if (e.target.closest('.io-recent-download')) {

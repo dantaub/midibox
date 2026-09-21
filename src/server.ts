@@ -283,7 +283,7 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
     // POST /api/playback/start
     if (path === "/playback/start" && method === "POST") {
       const body = await req.json();
-      const { start, end, output } = body;
+      const { start, end, output, events: providedEvents } = body;
 
       // Stop and silence any current playback FIRST, on its still-open output,
       // before we touch the output device below.
@@ -295,9 +295,11 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
         broadcast({ type: "output", output: getOutputDevice() });
       }
 
-      // Get events and play them back
-      const events = getRange(start, end);
-      
+      // Sessions are recorded in the DB and looked up by [start, end]; a
+      // parsed-but-unstored MIDI file (e.g. a recent import) has no DB rows,
+      // so its own client-side event list can be sent directly instead.
+      const events: MidiEvent[] = providedEvents ?? getRange(start, end);
+
       // Start playback in background, streaming events to clients
       playbackEvents(events, wsClients);
       

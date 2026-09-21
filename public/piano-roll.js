@@ -260,11 +260,20 @@ function createPianoRoll(container, opts = {}) {
     })
 
     canvas.addEventListener('pointermove', (e) => {
-        if (!dragging) return
+        if (!dragging) {
+            // Hover feedback so the handle reads as draggable before the
+            // user commits to a pointerdown.
+            const { x, y } = pointerPos(e)
+            canvas.style.cursor = nearHandle(x, y) ? 'ns-resize' : ''
+            return
+        }
         e.preventDefault()
         const { y } = pointerPos(e)
         playhead = yToTime(y)
         render()
+    })
+    canvas.addEventListener('pointerleave', () => {
+        if (!dragging) canvas.style.cursor = ''
     })
 
     function endDrag(e) {
