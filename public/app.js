@@ -2255,7 +2255,13 @@ btnPauseFile.addEventListener('click', async () => {
 })
 
 btnFilePianoRoll.addEventListener('click', () => {
-    if (importedEvents.length) openIOPianoRoll(importedEvents, { title: selectedMidiFile?.name || 'MIDI file' })
+    if (importedEvents.length) {
+        openIOPianoRoll(importedEvents, {
+            title: selectedMidiFile?.name || 'MIDI file',
+            anchorKey: 'file',
+            anchorEl: btnFilePianoRoll.closest('.io-card'),
+        })
+    }
 })
 
 btnFileScore.addEventListener('click', () => {

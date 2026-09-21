@@ -1583,6 +1583,13 @@ main,
 	color: #fff;
 }
 
+/* Session play button while its session is actively playing */
+.io-item-actions .btn-icon.playing {
+	background: #4a2e2e;
+	border-color: #6b3a3a;
+	color: #ff8a8a;
+}
+
 /* Import actions: equal-width buttons, one line, not stretched tall */
 .io-actions {
 	align-items: center;
