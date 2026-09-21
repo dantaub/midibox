@@ -555,11 +555,17 @@ function broadcastPlaybackEnd(clients: Set<ServerWebSocket<unknown>>): void {
 
 // Playback of a recorded range at its original timing.
 async function playbackEvents(events: MidiEvent[], clients: Set<ServerWebSocket<unknown>>): Promise<void> {
-  if (events.length === 0) return;
+  if (events.length === 0) {
+    // Nothing to play (e.g. a seek landing past the last note) - still tell
+    // clients so they don't sit forever thinking playback is still active.
+    broadcastPlaybackEnd(clients);
+    return;
+  }
 
   stopPlayback();
   playbackActive = true;
-  playbackAbortController = new AbortController();
+  const myController = new AbortController();
+  playbackAbortController = myController;
 
   const startTime = events[0]!.timestamp;
   const totalDuration = events[events.length - 1]!.timestamp - startTime;
@@ -581,8 +587,15 @@ async function playbackEvents(events: MidiEvent[], clients: Set<ServerWebSocket<
     clients
   );
 
-  playbackActive = false;
-  broadcastPlaybackEnd(clients);
+  // A newer seek/playback call may have superseded this one (its
+  // AbortController replaced ours) while we were unwinding from the abort.
+  // Only the call that's still current gets to clear playbackActive and
+  // announce "ended" - otherwise we'd clobber the state of the playback
+  // that superseded us and the client would see a spurious stop.
+  if (playbackAbortController === myController) {
+    playbackActive = false;
+    broadcastPlaybackEnd(clients);
+  }
 }
 
 // Translate one parsed MIDI-file event into a wire message and send it.
@@ -613,7 +626,8 @@ async function playbackMidiFile(events: MidiFileEvent[], clients: Set<ServerWebS
 
   stopPlayback();
   playbackActive = true;
-  playbackAbortController = new AbortController();
+  const myController = new AbortController();
+  playbackAbortController = myController;
 
   const totalDuration = events[events.length - 1]!.timeMs;
 
@@ -642,8 +656,10 @@ async function playbackMidiFile(events: MidiFileEvent[], clients: Set<ServerWebS
     clients
   );
 
-  playbackActive = false;
-  broadcastPlaybackEnd(clients);
+  if (playbackAbortController === myController) {
+    playbackActive = false;
+    broadcastPlaybackEnd(clients);
+  }
 }
 
 function json(data: any, status = 200): Response {

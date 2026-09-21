@@ -27,12 +27,24 @@ function placeIOPreviewAfter(el) {
 // (true for sessions; not for an uploaded/parsed .mid file's own 0-based
 // timestamps), so callers opt in with `seekable`.
 async function seekIOPreview(t) {
+    const newStart = Math.round(t)
+    // Notes highlighted from before the jump no longer reflect what's
+    // playing at the new position - drop them so the keyboard doesn't
+    // show stale/stuck-on keys until fresh noteon/noteoff events arrive.
+    if (ioPreviewInstance) ioPreviewInstance.clearHighlights()
     try {
         await fetch('/api/playback/start', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ start: Math.round(t), end: previewEnd, output: outputSelect.value || undefined }),
+            body: JSON.stringify({ start: newStart, end: previewEnd, output: outputSelect.value || undefined }),
         })
+        // The server now reports progress (0..1) over [newStart, previewEnd],
+        // not the original song span - rebase so the interpolated line keeps
+        // landing in the right place instead of snapping back on the next
+        // playback-event message.
+        previewStart = newStart
+        pbProgress = 0
+        pbAt = performance.now()
     } catch (err) {
         console.error('Seek failed:', err)
     }
