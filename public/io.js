@@ -22,8 +22,11 @@ function placeIOPreviewAfter(el) {
     if (el) el.insertAdjacentElement('afterend', ioPreview)
 }
 
-function openIOPianoRoll(events, { title, start, end, anchorKey, anchorEl } = {}) {
-    if (anchorKey && anchorKey === ioPreviewAnchorKey && !ioPreview.classList.contains('hidden')) {
+function openIOPianoRoll(events, { title, start, end, anchorKey, anchorEl, forceOpen } = {}) {
+    // forceOpen skips the toggle-closed check: used when playback switches to
+    // a different song while the preview is already open, so it follows the
+    // new song instead of closing.
+    if (!forceOpen && anchorKey && anchorKey === ioPreviewAnchorKey && !ioPreview.classList.contains('hidden')) {
         closeIOPreview()
         return
     }
@@ -272,6 +275,13 @@ ioSessionList.addEventListener('click', async (e) => {
                 })
                 ioPlayingSessionId = id
                 updateIOSessionPlayButtons()
+                // Preview follows playback: if it's already open (for this
+                // song or another), switch it to the song that's now playing.
+                if (!ioPreview.classList.contains('hidden')) {
+                    openIOPianoRoll(await fetchEventsRange(start, end), {
+                        start, end, title, anchorKey: `session:${id}`, anchorEl: row, forceOpen: true,
+                    })
+                }
             } catch (err) {
                 console.error('Playback failed:', err)
             }
