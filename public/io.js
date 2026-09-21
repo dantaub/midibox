@@ -41,7 +41,9 @@ function openIOPianoRoll(events, { title, start, end, anchorKey, anchorEl } = {}
     previewStart = s
     previewEnd = e
     stopPreviewPlayhead()
-    ioPreview.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    // Scroll the row that was clicked to the top, not the preview title, so
+    // the entry (with its play/stop button) stays visible above the panel.
+    ;(anchorEl || ioPreview).scrollIntoView({ behavior: 'smooth', block: 'start' })
     requestAnimationFrame(() => ioPreviewInstance && ioPreviewInstance.setData(evs, s, e))
 }
 
