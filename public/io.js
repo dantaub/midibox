@@ -229,6 +229,13 @@ ioRecentList.addEventListener('click', async (e) => {
 
     if (e.target.closest('.io-recent-play')) {
         await playMidiBlob(rec.data, rec.name)
+        // Preview follows playback: if it's already open (for this import,
+        // a different import, or a session), switch it to what's now playing.
+        if (!ioPreview.classList.contains('hidden')) {
+            openIOPianoRoll(await parseMidiBlob(rec.data, rec.name), {
+                title, anchorKey: `recent:${id}`, anchorEl: row, forceOpen: true, seekable: 'events',
+            })
+        }
     } else if (e.target.closest('.io-recent-piano')) {
         openIOPianoRoll(await parseMidiBlob(rec.data, rec.name), { title, anchorKey: `recent:${id}`, anchorEl: row, seekable: 'events' })
     } else if (e.target.closest('.io-recent-score')) {
