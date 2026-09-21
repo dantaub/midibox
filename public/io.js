@@ -22,7 +22,23 @@ function placeIOPreviewAfter(el) {
     if (el) el.insertAdjacentElement('afterend', ioPreview)
 }
 
-function openIOPianoRoll(events, { title, start, end, anchorKey, anchorEl, forceOpen } = {}) {
+// Drag the playhead handle to jump playback elsewhere in the song. Only
+// meaningful when start/end are real timestamps in the recorded-event store
+// (true for sessions; not for an uploaded/parsed .mid file's own 0-based
+// timestamps), so callers opt in with `seekable`.
+async function seekIOPreview(t) {
+    try {
+        await fetch('/api/playback/start', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ start: Math.round(t), end: previewEnd, output: outputSelect.value || undefined }),
+        })
+    } catch (err) {
+        console.error('Seek failed:', err)
+    }
+}
+
+function openIOPianoRoll(events, { title, start, end, anchorKey, anchorEl, forceOpen, seekable } = {}) {
     // forceOpen skips the toggle-closed check: used when playback switches to
     // a different song while the preview is already open, so it follows the
     // new song instead of closing.
@@ -34,7 +50,11 @@ function openIOPianoRoll(events, { title, start, end, anchorKey, anchorEl, force
 
     ioPreviewTitle.textContent = title ? `Piano roll — ${title}` : 'Piano roll'
     ioPreviewBody.innerHTML = ''
-    ioPreviewInstance = createPianoRoll(ioPreviewBody, { keyboard: true, flipped: false })
+    ioPreviewInstance = createPianoRoll(ioPreviewBody, {
+        keyboard: true,
+        flipped: false,
+        onSeek: seekable ? seekIOPreview : undefined,
+    })
     placeIOPreviewAfter(anchorEl)
     ioPreview.classList.remove('hidden')
 
@@ -279,7 +299,7 @@ ioSessionList.addEventListener('click', async (e) => {
                 // song or another), switch it to the song that's now playing.
                 if (!ioPreview.classList.contains('hidden')) {
                     openIOPianoRoll(await fetchEventsRange(start, end), {
-                        start, end, title, anchorKey: `session:${id}`, anchorEl: row, forceOpen: true,
+                        start, end, title, anchorKey: `session:${id}`, anchorEl: row, forceOpen: true, seekable: true,
                     })
                 }
             } catch (err) {
@@ -287,7 +307,7 @@ ioSessionList.addEventListener('click', async (e) => {
             }
         }
     } else if (e.target.closest('.io-piano')) {
-        openIOPianoRoll(await fetchEventsRange(start, end), { start, end, title, anchorKey: `session:${id}`, anchorEl: row })
+        openIOPianoRoll(await fetchEventsRange(start, end), { start, end, title, anchorKey: `session:${id}`, anchorEl: row, seekable: true })
     } else if (e.target.closest('.io-score')) {
         if (typeof openScoreView === 'function') openScoreView(await fetchEventsRange(start, end), { start, end, title })
     }

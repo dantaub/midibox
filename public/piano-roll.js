@@ -150,18 +150,30 @@ function createPianoRoll(container, opts = {}) {
     let start = 0
     let end = 1
     let playhead = null   // ms position of the playback line, or null
+    let dragging = false  // user is scrubbing the playhead handle
+
+    // Shared with the drag handlers below, so both agree on where the line is.
+    function timeToY(t) {
+        const height = wrap.clientHeight
+        const duration = Math.max(1, end - start)
+        const ratio = (t - start) / duration
+        return flipped ? height - ratio * height : ratio * height
+    }
+
+    function yToTime(y) {
+        const height = wrap.clientHeight || 1
+        const ratio = flipped ? 1 - y / height : y / height
+        return start + Math.max(0, Math.min(1, ratio)) * (end - start)
+    }
+
+    const HANDLE_RADIUS = 7
+    const HANDLE_HIT_RADIUS = 18  // generous, for touch
 
     function render() {
         const width = wrap.clientWidth
         const height = wrap.clientHeight
         if (!width || !height) return
         ctx.clearRect(0, 0, width, height)
-
-        const duration = Math.max(1, end - start)
-        const timeToY = (t) => {
-            const ratio = (t - start) / duration
-            return flipped ? height - ratio * height : ratio * height
-        }
 
         // Octave grid
         ctx.strokeStyle = '#1a1a2e'
@@ -197,16 +209,73 @@ function createPianoRoll(container, opts = {}) {
                 ctx.closePath()
                 ctx.fillStyle = '#ef4444'
                 ctx.fill()
+
+                // Grabbable handle at the right end, for scrubbing (only
+                // wired up when the caller gave us an onSeek callback).
+                if (opts.onSeek) {
+                    ctx.beginPath()
+                    ctx.arc(width, y, HANDLE_RADIUS, 0, Math.PI * 2)
+                    ctx.fillStyle = '#ef4444'
+                    ctx.fill()
+                    ctx.strokeStyle = '#fff'
+                    ctx.lineWidth = 2
+                    ctx.stroke()
+                }
                 ctx.restore()
             }
         }
     }
 
-    // Playback overlay: a moving line + lit keys, driven by the caller.
+    // Playback overlay: a moving line + lit keys, driven by the caller. While
+    // the user is dragging the handle, ignore external updates so the two
+    // don't fight over where the line is.
     function setPlayhead(t) {
+        if (dragging) return
         playhead = t
         render()
     }
+
+    // ---- Dragging the playhead handle to scrub -----------------------------
+    function pointerPos(e) {
+        const rect = canvas.getBoundingClientRect()
+        return { x: e.clientX - rect.left, y: e.clientY - rect.top }
+    }
+
+    function nearHandle(x, y) {
+        if (playhead == null || !opts.onSeek) return false
+        const width = wrap.clientWidth
+        const hy = timeToY(playhead)
+        const dx = x - width
+        const dy = y - hy
+        return dx * dx + dy * dy <= HANDLE_HIT_RADIUS * HANDLE_HIT_RADIUS
+    }
+
+    canvas.addEventListener('pointerdown', (e) => {
+        const { x, y } = pointerPos(e)
+        if (!nearHandle(x, y)) return
+        e.preventDefault()
+        dragging = true
+        canvas.setPointerCapture(e.pointerId)
+        canvas.style.cursor = 'ns-resize'
+    })
+
+    canvas.addEventListener('pointermove', (e) => {
+        if (!dragging) return
+        e.preventDefault()
+        const { y } = pointerPos(e)
+        playhead = yToTime(y)
+        render()
+    })
+
+    function endDrag(e) {
+        if (!dragging) return
+        dragging = false
+        canvas.style.cursor = ''
+        if (canvas.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId)
+        opts.onSeek(playhead)
+    }
+    canvas.addEventListener('pointerup', endDrag)
+    canvas.addEventListener('pointercancel', endDrag)
 
     function highlight(note, on) {
         const key = keys[note]
