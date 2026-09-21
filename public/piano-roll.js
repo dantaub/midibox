@@ -245,6 +245,9 @@ function createPianoRoll(container, opts = {}) {
         if (playhead == null || !opts.onSeek) return false
         const width = wrap.clientWidth
         const hy = timeToY(playhead)
+        // Anywhere along the line counts, not just the circular handle at
+        // its right end - the whole red bar is draggable.
+        if (x >= 0 && x <= width) return Math.abs(y - hy) <= HANDLE_HIT_RADIUS
         const dx = x - width
         const dy = y - hy
         return dx * dx + dy * dy <= HANDLE_HIT_RADIUS * HANDLE_HIT_RADIUS
