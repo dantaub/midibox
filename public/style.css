@@ -1630,6 +1630,13 @@ main,
 	cursor: default;
 }
 
+/* ...except the canvas itself, which needs pointer events for the
+   draggable playhead handle (the parent's pointer-events: none above
+   otherwise blocks it). */
+.io-preview-body .timeline-canvas {
+	pointer-events: auto;
+}
+
 .io-preview-body .white-key,
 .io-preview-body .black-key,
 .piano-roll-modal-body .white-key,
