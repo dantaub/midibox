@@ -731,6 +731,7 @@ function clearSelection() {
 
 // Timeline mouse/drag handlers
 let dragState = null  // { mode: 'new'|'left'|'right', startTime: number }
+let pinchState = null  // two-finger touch pan/zoom, see below
 const handleLeft = $('handleLeft')
 const handleRight = $('handleRight')
 
@@ -780,26 +781,40 @@ function sessionHandleAt(x, y) {
     return null
 }
 
-handleLeft.addEventListener('mousedown', (e) => {
+// Touch events give coordinates on touches/changedTouches instead of the
+// event itself; this normalizes both so the drag/pinch logic below can share
+// one code path between mouse and single-finger touch input.
+function eventPoint(e) {
+    if (e.touches && e.touches.length) return e.touches[0]
+    if (e.changedTouches && e.changedTouches.length) return e.changedTouches[0]
+    return e
+}
+
+function startLeftHandleDrag(e) {
     e.stopPropagation()
     e.preventDefault()
     if (!timeline.selection) return
     dragState = { mode: 'left' }
-})
+}
+handleLeft.addEventListener('mousedown', startLeftHandleDrag)
+handleLeft.addEventListener('touchstart', startLeftHandleDrag, { passive: false })
 
-handleRight.addEventListener('mousedown', (e) => {
+function startRightHandleDrag(e) {
     e.stopPropagation()
     e.preventDefault()
     if (!timeline.selection) return
     dragState = { mode: 'right' }
-})
+}
+handleRight.addEventListener('mousedown', startRightHandleDrag)
+handleRight.addEventListener('touchstart', startRightHandleDrag, { passive: false })
 
-timelineContainer.addEventListener('mousedown', (e) => {
+function startTimelineDrag(e) {
     if (e.target.classList.contains('timeline-handle')) return
 
+    const p = eventPoint(e)
     const rect = timelineContainer.getBoundingClientRect()
-    const x = e.clientX - rect.left
-    const y = e.clientY - rect.top
+    const x = p.clientX - rect.left
+    const y = p.clientY - rect.top
 
     // Check if clicking on session handles
     const handleMode = sessionHandleAt(x, y)
@@ -811,12 +826,20 @@ timelineContainer.addEventListener('mousedown', (e) => {
 
     const time = yToTime(y)
     dragState = { mode: 'new', startTime: time, startY: y, dragging: false }
-})
+}
+timelineContainer.addEventListener('mousedown', startTimelineDrag)
+timelineContainer.addEventListener('touchstart', (e) => {
+    // A second finger means a pinch/pan gesture is starting instead (below);
+    // bail out of any single-finger drag that may have just begun.
+    if (e.touches.length !== 1) { dragState = null; return }
+    startTimelineDrag(e)
+}, { passive: false })
 
-document.addEventListener('mousemove', (e) => {
+function moveTimelineDrag(e) {
     if (!dragState) return
+    const p = eventPoint(e)
     const rect = timelineContainer.getBoundingClientRect()
-    const y = Math.max(0, Math.min(rect.height, e.clientY - rect.top))
+    const y = Math.max(0, Math.min(rect.height, p.clientY - rect.top))
     const time = yToTime(y)
 
     if (dragState.mode === 'new') {
@@ -860,7 +883,12 @@ document.addEventListener('mousemove', (e) => {
             drawTimeline()
         }
     }
-})
+}
+document.addEventListener('mousemove', moveTimelineDrag)
+document.addEventListener('touchmove', (e) => {
+    if (pinchState) return  // two-finger pinch/pan is handled separately, below
+    if (dragState) { e.preventDefault(); moveTimelineDrag(e) }
+}, { passive: false })
 
 function updateEditPanelTimeInfo(session) {
     const start = new Date(session.start_time)
@@ -871,7 +899,12 @@ function updateEditPanelTimeInfo(session) {
     $('editTimeInfo').textContent = `${start.toLocaleTimeString()} - ${end.toLocaleTimeString()} (${mins}:${secs.toString().padStart(2, '0')})`
 }
 
-document.addEventListener('mouseup', (e) => {
+// Tracks the last tap's time/position so a quick second tap in roughly the
+// same spot can stand in for dblclick (touch has no double-click event).
+let lastTapAt = 0
+let lastTapPos = null
+
+function endTimelineDrag(e) {
     if (!dragState) return
 
     // If we dragged, switch to detached mode
@@ -882,19 +915,35 @@ document.addEventListener('mouseup', (e) => {
 
     // If we clicked (not dragged), check if we clicked on a session
     if (!dragState.dragging && dragState.mode === 'new') {
+        const p = eventPoint(e)
         const rect = timelineContainer.getBoundingClientRect()
-        const x = e.clientX - rect.left
-        const y = e.clientY - rect.top
+        const x = p.clientX - rect.left
+        const y = p.clientY - rect.top
+
+        const isTouch = e.type === 'touchend'
+        const now = Date.now()
+        const isDoubleTap = isTouch && now - lastTapAt < 350 && lastTapPos &&
+            Math.abs(p.clientX - lastTapPos.x) < 30 && Math.abs(p.clientY - lastTapPos.y) < 30
+        lastTapAt = isDoubleTap ? 0 : now
+        lastTapPos = isDoubleTap ? null : { x: p.clientX, y: p.clientY }
 
         const session = getSessionAtPosition(x, y)
         if (session) {
             // Select this session
-            selectSession(session.id, session.start_time, session.end_time)
+            const selected = selectSession(session.id, session.start_time, session.end_time)
 
             // Also highlight in the sidebar list
             sessionList.querySelectorAll('.session-item').forEach(item => {
                 item.classList.toggle('selected', parseInt(item.dataset.id, 10) === session.id)
             })
+
+            // A double-tap on a session opens it for editing, mirroring dblclick
+            if (isDoubleTap) {
+                selected.then(() => {
+                    showEditPanel(session.id)
+                    $('editPerformer').focus()
+                })
+            }
         } else {
             // Clicked on empty space - cancel edit mode if active
             if (timeline.selectedSessionId != null && timeline.originalSessionBounds) {
@@ -910,9 +959,12 @@ document.addEventListener('mouseup', (e) => {
     }
 
     dragState = null
-})
+}
+document.addEventListener('mouseup', endTimelineDrag)
+document.addEventListener('touchend', endTimelineDrag)
 
-// Double-click on session to open edit panel
+// Double-click on session to open edit panel (desktop; touch uses double-tap
+// detection inside endTimelineDrag above)
 timelineContainer.addEventListener('dblclick', async (e) => {
     const rect = timelineContainer.getBoundingClientRect()
     const x = e.clientX - rect.left
@@ -999,6 +1051,57 @@ timelineCanvas.addEventListener('wheel', async (e) => {
     updateTimeLabels()
     drawTimeline()
 }, { passive: false })
+
+// Two-finger touch: pinch to zoom, drag the midpoint to pan (touch has no
+// wheel event, so this is the mobile equivalent of the handler above).
+function touchMidpoint(t0, t1, rect) {
+    let ratio = Math.max(0, Math.min(1, ((t0.clientY + t1.clientY) / 2 - rect.top) / rect.height))
+    if (timeline.flipped) ratio = 1 - ratio
+    return ratio
+}
+
+timelineContainer.addEventListener('touchstart', (e) => {
+    if (e.touches.length !== 2) return
+    e.preventDefault()
+    dragState = null  // a pinch overrides any single-finger drag just started
+
+    if (isLive()) {
+        freezeView()
+        updateLiveButton()
+    }
+
+    const rect = timelineContainer.getBoundingClientRect()
+    const ratio = touchMidpoint(e.touches[0], e.touches[1], rect)
+    pinchState = {
+        startDist: Math.hypot(e.touches[1].clientX - e.touches[0].clientX, e.touches[1].clientY - e.touches[0].clientY),
+        startDuration: timeline.detachedDuration,
+        // The instant under the fingers' midpoint at gesture start; keeping
+        // this locked under the (moving) midpoint gives both pan and zoom.
+        centerTime: timeline.startTime + timeline.detachedDuration * ratio,
+    }
+}, { passive: false })
+
+document.addEventListener('touchmove', async (e) => {
+    if (!pinchState || e.touches.length !== 2) return
+    e.preventDefault()
+
+    const rect = timelineContainer.getBoundingClientRect()
+    const dist = Math.hypot(e.touches[1].clientX - e.touches[0].clientX, e.touches[1].clientY - e.touches[0].clientY)
+    const scale = dist / pinchState.startDist
+    const newDuration = Math.max(5000, pinchState.startDuration / scale)
+    const ratio = touchMidpoint(e.touches[0], e.touches[1], rect)
+
+    timeline.startTime = Math.max(0, pinchState.centerTime - newDuration * ratio)
+    timeline.detachedDuration = newDuration
+
+    await ensureTimelineDataCovers(getViewStart(), getViewEnd())
+    updateTimeLabels()
+    drawTimeline()
+}, { passive: false })
+
+document.addEventListener('touchend', (e) => {
+    if (e.touches.length < 2) pinchState = null
+})
 
 // Keyboard navigation
 document.addEventListener('keydown', async (e) => {
