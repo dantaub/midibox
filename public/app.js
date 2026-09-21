@@ -494,15 +494,17 @@ function drawSessionOverlays(width, height, viewStart, viewEnd) {
 
         // Draw border for selected session
         if (isSelected) {
-            ctx.strokeStyle = colors.border
-            ctx.lineWidth = 2
-            ctx.strokeRect(x + 1, y1 + 1, bandWidth - 2, bandHeight - 2)
-
             // Only draw resize handles when in edit mode (edit panel is open)
             const isEditing = !$('editPanel').classList.contains('hidden')
+            const EDIT_COLOR = '#ff2fd0'  // bright pink, distinct from any session's own color
+
+            ctx.strokeStyle = isEditing ? EDIT_COLOR : colors.border
+            ctx.lineWidth = isEditing ? 3 : 2
+            ctx.strokeRect(x + 1, y1 + 1, bandWidth - 2, bandHeight - 2)
+
             if (isEditing) {
                 const handleHeight = 6
-                ctx.fillStyle = colors.border
+                ctx.fillStyle = EDIT_COLOR
 
                 // Start (top) handle
                 ctx.fillRect(x, y1, bandWidth, handleHeight)
@@ -1105,6 +1107,15 @@ document.addEventListener('touchend', (e) => {
 
 // Keyboard navigation
 document.addEventListener('keydown', async (e) => {
+    // Escape should end a session edit even while a text field inside the
+    // edit panel is focused - it's the only shortcut that needs to reach
+    // through typing.
+    if (e.key === 'Escape' && !editPanel.classList.contains('hidden')) {
+        e.preventDefault()
+        $('btnEditCancel').click()
+        return
+    }
+
     // Don't handle keys when in input fields
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return
 
