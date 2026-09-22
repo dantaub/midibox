@@ -6,21 +6,22 @@
 // tab / Score button, so definition order relative to io.js does not matter.
 //
 // This is the most heuristic piece in the app. MIDI is timestamped in real
-// milliseconds with no tempo, key, or time signature, so the notation is an
-// approximation: timing is quantized to a fixed grid, 4/4 and 120 BPM are
-// assumed, and pitches spell with sharps only (no key signature). It is meant
-// to be readable at a glance, not an accurate transcription.
+// milliseconds with no reliable tempo, key, or time signature, so the notation
+// is an approximation: timing is quantized to a fixed grid and 120 BPM is
+// assumed. A toolbar in the modal lets the user pick which channel to show
+// (multitrack files stack every instrument otherwise) and the time/key
+// signature to notate against; the notation re-renders on any change.
 // ===========================================
 
-// --- Assumptions (documented in the modal footer too) -----------------------
+// --- Assumptions ------------------------------------------------------------
 const SCORE_BPM = 120
-const SCORE_QUARTER_MS = 60000 / SCORE_BPM   // one beat in ms
-const SCORE_BEATS_PER_MEASURE = 4            // 4/4
+const SCORE_QUARTER_MS = 60000 / SCORE_BPM   // one beat (quarter note) in ms
 const SCORE_MAX_MEASURES = 64                // cap so a long session stays sane
 const SCORE_SPLIT_NOTE = 60                  // middle C: >= treble, < bass
+const SCORE_DRUM_CHANNEL = 9                 // GM percussion (MIDI channel 10)
 
-// Note value -> { code, beats }, longest first. Chord durations snap to the
-// nearest of these; nothing shorter than a sixteenth or longer than a whole.
+// Note value -> { code, beats }, longest first (beats in quarter-note units).
+// Chord durations snap to the nearest of these.
 const SCORE_DURATIONS = [
     { code: 'w', beats: 4 },
     { code: 'h', beats: 2 },
@@ -29,11 +30,24 @@ const SCORE_DURATIONS = [
     { code: '16', beats: 0.25 },
 ]
 
-const SCORE_PITCH_NAMES = ['c', 'c#', 'd', 'd#', 'e', 'f', 'f#', 'g', 'g#', 'a', 'a#', 'b']
+// Pitch spelling. Sharp keys use sharps, flat keys use flats; applyAccidentals
+// then decides which accidentals actually need drawing given the key signature.
+const SCORE_SHARP_NAMES = ['c', 'c#', 'd', 'd#', 'e', 'f', 'f#', 'g', 'g#', 'a', 'a#', 'b']
+const SCORE_FLAT_NAMES = ['c', 'db', 'd', 'eb', 'e', 'f', 'gb', 'g', 'ab', 'a', 'bb', 'b']
+const SCORE_KEYS = ['C', 'G', 'D', 'A', 'E', 'B', 'F#', 'F', 'Bb', 'Eb', 'Ab', 'Db']
+const SCORE_FLAT_KEYS = new Set(['F', 'Bb', 'Eb', 'Ab', 'Db', 'Gb', 'Cb'])
+const SCORE_TIME_SIGS = ['4/4', '3/4', '2/4', '2/2', '6/8', '3/8', '12/8']
 
 // MIDI note -> VexFlow key like "c#/4" (MIDI 60 = C4).
-function scoreNoteToKey(note) {
-    return `${SCORE_PITCH_NAMES[note % 12]}/${Math.floor(note / 12) - 1}`
+function scoreNoteToKey(note, useFlats) {
+    const names = useFlats ? SCORE_FLAT_NAMES : SCORE_SHARP_NAMES
+    return `${names[note % 12]}/${Math.floor(note / 12) - 1}`
+}
+
+// "4/4" -> { top, bottom, beats } where beats is the measure length in quarters.
+function scoreParseTimeSig(sig) {
+    const [top, bottom] = sig.split('/').map(Number)
+    return { top, bottom, beats: (top * 4) / bottom }
 }
 
 // Snap a raw duration (ms) to the nearest allowed note value.
@@ -48,13 +62,29 @@ function scoreQuantizeDuration(ms) {
     return best
 }
 
+// Distinct channels that carry notes, sorted, for the channel picker.
+function scoreChannelsPresent(events) {
+    const set = new Set()
+    for (const e of events) {
+        if (e.type === 'noteon' || e.type === 'noteoff') set.add(e.channel ?? 0)
+    }
+    return [...set].sort((a, b) => a - b)
+}
+
+// Filter events to the selected channel(s). 'no-drums' = everything but GM
+// percussion; 'all' = everything; a number = that one channel.
+function scoreFilterByChannel(events, chOpt) {
+    if (chOpt === 'all') return events
+    if (chOpt === 'no-drums') return events.filter(e => e.channel !== SCORE_DRUM_CHANNEL)
+    const ch = Number(chOpt)
+    return events.filter(e => (e.channel ?? 0) === ch)
+}
+
 // Group bars into chords by shared onset, then give each chord a duration from
 // the gap to the next chord's onset (the last chord uses its own note length).
-// Returns [{ notes:[midi...], dur:{code,beats} }, ...] in time order.
 function scoreBarsToChords(bars) {
     if (!bars.length) return []
     const sorted = [...bars].sort((a, b) => a.start - b.start)
-    // Cluster onsets that land within a small window into one chord.
     const CHORD_WINDOW_MS = 60
     const chords = []
     let cur = null
@@ -82,15 +112,15 @@ function scoreBarsToChords(bars) {
     })
 }
 
-// Pack chords into 4/4 measures. A chord that would overflow the current
-// measure starts a new one (durations are not split across bar lines - a v1
-// simplification, which is why voices render non-strict below).
-function scoreChordsToMeasures(chords) {
+// Pack chords into measures of the given length (quarter beats). A chord that
+// would overflow starts a new measure (durations are not split across bar lines
+// - a v1 simplification, which is why voices render non-strict below).
+function scoreChordsToMeasures(chords, measureBeats) {
     const measures = []
     let cur = null
     let beats = 0
     for (const chord of chords) {
-        if (!cur || beats + chord.dur.beats > SCORE_BEATS_PER_MEASURE) {
+        if (!cur || beats + chord.dur.beats > measureBeats) {
             cur = []
             measures.push(cur)
             beats = 0
@@ -103,23 +133,27 @@ function scoreChordsToMeasures(chords) {
 }
 
 // Build one VexFlow StaveNote for a clef from a chord, or a rest if the chord
-// has no notes on that side of the split. Adds sharp accidentals as needed.
-function scoreBuildNote(VF, clef, midiNotes, durCode) {
+// has no notes on that side of the split. Accidentals are added later by
+// Accidental.applyAccidentals(), which respects the key signature.
+function scoreBuildNote(VF, clef, midiNotes, durCode, useFlats) {
     if (!midiNotes.length) {
         return new VF.StaveNote({ clef, keys: [clef === 'treble' ? 'b/4' : 'd/3'], duration: durCode + 'r' })
     }
-    const keys = midiNotes.map(scoreNoteToKey)
-    const note = new VF.StaveNote({ clef, keys, duration: durCode })
-    midiNotes.forEach((m, i) => {
-        if (SCORE_PITCH_NAMES[m % 12].includes('#')) note.addModifier(new VF.Accidental('#'), i)
-    })
-    return note
+    const keys = midiNotes.map(n => scoreNoteToKey(n, useFlats))
+    return new VF.StaveNote({ clef, keys, duration: durCode })
 }
 
 // --- Modal shell (built once, reused) ---------------------------------------
 let scoreModal = null
 let scoreContainer = null
 let scoreTitleEl = null
+let scoreChannelSel = null
+let scoreTimeSel = null
+let scoreKeySel = null
+
+// Current view state, so the toolbar can re-render without re-fetching.
+let scoreEvents = []
+let scoreOpts = { channel: 'no-drums', timeSig: '4/4', key: 'C' }
 
 function ensureScoreModal() {
     if (scoreModal) return
@@ -132,18 +166,50 @@ function ensureScoreModal() {
                 <button class="modal-close" id="scoreModalClose" title="Close">&#x2715;</button>
             </div>
             <div class="modal-body score-modal-body">
+                <div class="score-toolbar">
+                    <label>Channel <select id="scoreChannel"></select></label>
+                    <label>Time <select id="scoreTimeSig"></select></label>
+                    <label>Key <select id="scoreKey"></select></label>
+                </div>
                 <div id="scoreContainer" class="score-container"></div>
-                <p class="score-note">Notation is approximate: timing quantized, 4/4 and 120&nbsp;BPM assumed, pitches spelled with sharps (no key signature).</p>
+                <p class="score-note">Notation is approximate: timing is quantized and 120&nbsp;BPM is assumed. Use the controls above to pick a channel, time signature and key.</p>
             </div>
         </div>`
     document.body.appendChild(scoreModal)
     scoreContainer = scoreModal.querySelector('#scoreContainer')
     scoreTitleEl = scoreModal.querySelector('#scoreModalTitle')
+    scoreChannelSel = scoreModal.querySelector('#scoreChannel')
+    scoreTimeSel = scoreModal.querySelector('#scoreTimeSig')
+    scoreKeySel = scoreModal.querySelector('#scoreKey')
+
+    scoreTimeSel.innerHTML = SCORE_TIME_SIGS.map(s => `<option value="${s}">${s}</option>`).join('')
+    scoreKeySel.innerHTML = SCORE_KEYS.map(k => `<option value="${k}">${k} major</option>`).join('')
+
+    scoreChannelSel.addEventListener('change', () => { scoreOpts.channel = scoreChannelSel.value; renderScore() })
+    scoreTimeSel.addEventListener('change', () => { scoreOpts.timeSig = scoreTimeSel.value; renderScore() })
+    scoreKeySel.addEventListener('change', () => { scoreOpts.key = scoreKeySel.value; renderScore() })
+
     scoreModal.querySelector('#scoreModalClose').addEventListener('click', closeScoreView)
     scoreModal.addEventListener('click', (e) => { if (e.target === scoreModal) closeScoreView() })
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape' && !scoreModal.classList.contains('hidden')) closeScoreView()
     })
+}
+
+// Rebuild the channel dropdown from the channels actually present in the file.
+function scorePopulateChannels(events) {
+    const chans = scoreChannelsPresent(events)
+    const hasDrums = chans.includes(SCORE_DRUM_CHANNEL)
+    const opts = [`<option value="no-drums">All${hasDrums ? ' (no drums)' : ''}</option>`]
+    if (hasDrums) opts.push(`<option value="all">All (with drums)</option>`)
+    for (const c of chans) {
+        opts.push(`<option value="${c}">Ch ${c + 1}${c === SCORE_DRUM_CHANNEL ? ' (drums)' : ''}</option>`)
+    }
+    scoreChannelSel.innerHTML = opts.join('')
+    // Single-channel files don't need the picker.
+    scoreChannelSel.parentElement.style.display = chans.length > 1 ? '' : 'none'
+    scoreOpts.channel = 'no-drums'
+    scoreChannelSel.value = 'no-drums'
 }
 
 function closeScoreView() {
@@ -153,10 +219,15 @@ function closeScoreView() {
 // Public entry point (referenced by io.js and the imported-file Score button).
 function openScoreView(events, { title } = {}) {
     ensureScoreModal()
+    scoreEvents = events || []
+    scoreOpts = { channel: 'no-drums', timeSig: '4/4', key: 'C' }
     scoreTitleEl.textContent = title ? `Score — ${title}` : 'Score'
+    scorePopulateChannels(scoreEvents)
+    scoreTimeSel.value = '4/4'
+    scoreKeySel.value = 'C'
     scoreModal.classList.remove('hidden')
     // Render after the modal is visible so the container has a real width.
-    requestAnimationFrame(() => renderScore(events || []))
+    requestAnimationFrame(() => renderScore())
 }
 
 // --- Playback highlight -----------------------------------------------------
@@ -193,32 +264,37 @@ onPlaybackStatus((status) => {
     if (status === 'ended') scoreHighlightAt(-1)
 })
 
-function renderScore(events) {
+function renderScore() {
     scoreContainer.innerHTML = ''
     scoreChordEls = []
     scoreLit = []
-    scoreRangeStart = events.length ? events[0].timestamp : 0
-    scoreRangeEnd = events.length ? events[events.length - 1].timestamp : 1
     const VF = window.Vex && window.Vex.Flow
     if (!VF) {
         scoreContainer.innerHTML = '<div class="history-empty">Score library failed to load.</div>'
         return
     }
 
+    const events = scoreFilterByChannel(scoreEvents, scoreOpts.channel)
+    scoreRangeStart = events.length ? events[0].timestamp : 0
+    scoreRangeEnd = events.length ? events[events.length - 1].timestamp : 1
+
     const endTime = events.length ? events[events.length - 1].timestamp : 0
     const bars = pairNoteBars(events, endTime)
     if (!bars.length) {
-        scoreContainer.innerHTML = '<div class="history-empty">No notes to display.</div>'
+        scoreContainer.innerHTML = '<div class="history-empty">No notes to display for this channel.</div>'
         return
     }
 
+    const time = scoreParseTimeSig(scoreOpts.timeSig)
+    const key = scoreOpts.key
+    const useFlats = SCORE_FLAT_KEYS.has(key)
     const chords = scoreBarsToChords(bars)
-    const measures = scoreChordsToMeasures(chords)
+    const measures = scoreChordsToMeasures(chords, time.beats)
     const capped = measures.length >= SCORE_MAX_MEASURES
 
     // Layout geometry: fit as many measures per row as the container allows.
     const MEASURE_W = 260
-    const FIRST_EXTRA = 40           // first measure of a row carries the clef/brace
+    const FIRST_EXTRA = 60           // first measure of a row carries clef/brace/keysig
     const ROW_H = 220
     const PAD_X = 10
     const PAD_TOP = 10
@@ -243,7 +319,8 @@ function renderScore(events) {
         if (isFirstInRow) {
             treble.addClef('treble')
             bass.addClef('bass')
-            if (mi === 0) { treble.addTimeSignature('4/4'); bass.addTimeSignature('4/4') }
+            if (key !== 'C') { treble.addKeySignature(key); bass.addKeySignature(key) }
+            if (mi === 0) { treble.addTimeSignature(scoreOpts.timeSig); bass.addTimeSignature(scoreOpts.timeSig) }
         }
         treble.setContext(ctx).draw()
         bass.setContext(ctx).draw()
@@ -255,13 +332,16 @@ function renderScore(events) {
         const trebleNotes = []
         const bassNotes = []
         for (const chord of measure) {
-            trebleNotes.push(scoreBuildNote(VF, 'treble', chord.notes.filter(n => n >= SCORE_SPLIT_NOTE), chord.dur.code))
-            bassNotes.push(scoreBuildNote(VF, 'bass', chord.notes.filter(n => n < SCORE_SPLIT_NOTE), chord.dur.code))
+            trebleNotes.push(scoreBuildNote(VF, 'treble', chord.notes.filter(n => n >= SCORE_SPLIT_NOTE), chord.dur.code, useFlats))
+            bassNotes.push(scoreBuildNote(VF, 'bass', chord.notes.filter(n => n < SCORE_SPLIT_NOTE), chord.dur.code, useFlats))
         }
 
         // Non-strict: partial measures and un-split durations are fine for v1.
-        const tVoice = new VF.Voice({ num_beats: SCORE_BEATS_PER_MEASURE, beat_value: 4 }).setStrict(false).addTickables(trebleNotes)
-        const bVoice = new VF.Voice({ num_beats: SCORE_BEATS_PER_MEASURE, beat_value: 4 }).setStrict(false).addTickables(bassNotes)
+        const tVoice = new VF.Voice({ num_beats: time.top, beat_value: time.bottom }).setStrict(false).addTickables(trebleNotes)
+        const bVoice = new VF.Voice({ num_beats: time.top, beat_value: time.bottom }).setStrict(false).addTickables(bassNotes)
+        // Draw accidentals per the key signature (adds naturals, hides in-key ones).
+        VF.Accidental.applyAccidentals([tVoice], key)
+        VF.Accidental.applyAccidentals([bVoice], key)
         new VF.Formatter().joinVoices([tVoice]).joinVoices([bVoice]).format([tVoice, bVoice], w - 30)
         tVoice.draw(ctx, treble)
         bVoice.draw(ctx, bass)
