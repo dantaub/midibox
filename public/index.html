@@ -220,10 +220,9 @@
 
     <!-- Import / Export tab -->
     <section class="view io-view hidden" id="viewIO">
-        <div class="card io-card">
-            <h2>Import a MIDI file</h2>
-            <p class="io-hint">Load a <code>.mid</code> to preview or play. Recent imports are kept in your browser, not on the server.</p>
-            <div class="controls">
+        <!-- Detached import bar: sticks under the header while the tab scrolls -->
+        <div class="io-toolbar" id="ioToolbar">
+            <div class="io-toolbar-main">
                 <input type="file" id="midiFileInput" accept=".mid,.midi" hidden>
                 <button class="btn btn-secondary" id="btnSelectFile">Select File</button>
                 <div id="fileInfo" class="file-info"></div>
@@ -235,6 +234,7 @@
                     <button class="btn btn-secondary" id="btnFileScore" disabled>&#x1D11E; Score</button>
                 </div>
             </div>
+            <p class="io-hint">Load a <code>.mid</code> to preview or play. Recent imports are kept in your browser, not on the server.</p>
         </div>
 
         <!-- Inline preview: the piano roll expands directly below the buttons -->

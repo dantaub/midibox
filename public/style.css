@@ -1504,7 +1504,7 @@ main,
 	display: flex;
 	flex-direction: column;
 	gap: 1rem;
-	padding: 1rem;
+	padding: 0 1rem 1rem;
 	max-width: 780px;
 	margin: 0 auto;
 	width: 100%;
@@ -1517,6 +1517,45 @@ main,
 	color: #888;
 	font-size: 0.85rem;
 	margin: 0.25rem 0 0.75rem;
+}
+
+/* Detached import bar: sticks under the header while the IO tab scrolls.
+   Negative margins bleed it to the edges of the padded, centered io-view. */
+.io-toolbar {
+	position: sticky;
+	top: 0;
+	z-index: 50;
+	background: #16213e;
+	margin: 0 -1rem;
+	padding: 0.6rem 1rem 0.5rem;
+	border-bottom: 1px solid #26264a;
+	display: flex;
+	flex-direction: column;
+	gap: 0.3rem;
+}
+
+.io-toolbar-main {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 0.5rem;
+}
+
+.io-toolbar .io-actions {
+	margin-top: 0;
+	margin-left: auto;
+	flex-wrap: wrap;
+}
+
+/* Natural-width buttons in the bar, not the stacked card's full-width ones. */
+.io-toolbar .io-actions .btn {
+	flex: 0 0 auto;
+}
+
+.io-toolbar .io-hint {
+	color: #888;
+	font-size: 0.8rem;
+	margin: 0;
 }
 
 .io-actions {
