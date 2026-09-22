@@ -70,7 +70,15 @@ function scoreBarsToChords(bars) {
     return chords.map((c, i) => {
         const next = chords[i + 1]
         const spanMs = next ? next.start - c.start : c.end - c.start
-        return { notes: [...new Set(c.notes)].sort((a, b) => a - b), dur: scoreQuantizeDuration(spanMs) }
+        // start / until = the real-time window this chord occupies, used to
+        // light up only the chord currently sounding (a pitch can repeat across
+        // measures, so matching by pitch alone would light them all).
+        return {
+            notes: [...new Set(c.notes)].sort((a, b) => a - b),
+            dur: scoreQuantizeDuration(spanMs),
+            start: c.start,
+            until: next ? next.start : c.end,
+        }
     })
 }
 
@@ -152,39 +160,45 @@ function openScoreView(events, { title } = {}) {
 }
 
 // --- Playback highlight -----------------------------------------------------
-// Rendered notes tagged with their MIDI pitches, so the notes currently
-// sounding (tracked from the playback stream) can be lit up. Rests have an
-// empty pitch set and never highlight.
-let scoreNoteEntries = []      // [{ el:SVGGElement, notes:Set<number> }]
-const scoreActive = new Set()  // MIDI notes currently held during playback
+// Each drawn chord is tagged with its SVG note group(s) and its real-time
+// window [start, until). The chord whose window contains the current playback
+// position lights up - matching by time, not pitch, so a pitch that repeats in
+// later measures doesn't light them all at once.
+let scoreChordEls = []   // [{ els:SVGGElement[], start:number, until:number }]
+let scoreRangeStart = 0  // first/last event timestamp of what's rendered, so
+let scoreRangeEnd = 1    // the playback progress (0..1) maps back to a time
+let scoreLit = []        // currently-lit elements, cleared on each update
 
-function scoreApplyHighlight() {
-    for (const entry of scoreNoteEntries) {
-        let on = false
-        for (const n of entry.notes) { if (scoreActive.has(n)) { on = true; break } }
-        entry.el.classList.toggle('score-playing', on)
+function scoreHighlightAt(ms) {
+    for (const el of scoreLit) el.classList.remove('score-playing')
+    scoreLit = []
+    for (const chord of scoreChordEls) {
+        if (ms >= chord.start && ms < chord.until) {
+            for (const el of chord.els) { el.classList.add('score-playing'); scoreLit.push(el) }
+        }
     }
 }
 
 // Passive follow-along: whenever the score modal is open and something is
-// playing (started from any Play button), light the matching notes. Opening
-// the score does not itself start playback.
+// playing (started from any Play button), light the chord at the current
+// position. Opening the score does not itself start playback. Assumes the
+// thing playing is what's shown - progress maps onto the rendered time range.
 onPlaybackEvent((data) => {
     if (!scoreModal || scoreModal.classList.contains('hidden')) return
-    const ev = data.event
-    if (isNoteOn(ev)) scoreActive.add(ev.note)
-    else if (isNoteOff(ev)) scoreActive.delete(ev.note)
-    scoreApplyHighlight()
+    if (typeof data.progress !== 'number') return
+    scoreHighlightAt(scoreRangeStart + data.progress * (scoreRangeEnd - scoreRangeStart))
 })
 
 onPlaybackStatus((status) => {
-    if (status === 'ended') { scoreActive.clear(); scoreApplyHighlight() }
+    if (status === 'ended') scoreHighlightAt(-1)
 })
 
 function renderScore(events) {
     scoreContainer.innerHTML = ''
-    scoreNoteEntries = []
-    scoreActive.clear()
+    scoreChordEls = []
+    scoreLit = []
+    scoreRangeStart = events.length ? events[0].timestamp : 0
+    scoreRangeEnd = events.length ? events[events.length - 1].timestamp : 1
     const VF = window.Vex && window.Vex.Flow
     if (!VF) {
         scoreContainer.innerHTML = '<div class="history-empty">Score library failed to load.</div>'
@@ -252,12 +266,14 @@ function renderScore(events) {
         tVoice.draw(ctx, treble)
         bVoice.draw(ctx, bass)
 
-        // Tag each drawn StaveNote (now it has an SVG group) with its pitches.
+        // Tag each drawn chord (now its StaveNotes have SVG groups) with its
+        // note groups and real-time window, for the playback highlight. Skip
+        // the rest side (no notes) so only sounding staves light.
         measure.forEach((chord, ci) => {
-            const treb = trebleNotes[ci], bas = bassNotes[ci]
-            const trebEl = treb.getSVGElement(), basEl = bas.getSVGElement()
-            if (trebEl) scoreNoteEntries.push({ el: trebEl, notes: new Set(chord.notes.filter(n => n >= SCORE_SPLIT_NOTE)) })
-            if (basEl) scoreNoteEntries.push({ el: basEl, notes: new Set(chord.notes.filter(n => n < SCORE_SPLIT_NOTE)) })
+            const els = []
+            if (chord.notes.some(n => n >= SCORE_SPLIT_NOTE)) { const el = trebleNotes[ci].getSVGElement(); if (el) els.push(el) }
+            if (chord.notes.some(n => n < SCORE_SPLIT_NOTE)) { const el = bassNotes[ci].getSVGElement(); if (el) els.push(el) }
+            if (els.length) scoreChordEls.push({ els, start: chord.start, until: chord.until })
         })
     })
 
