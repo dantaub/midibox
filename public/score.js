@@ -151,8 +151,40 @@ function openScoreView(events, { title } = {}) {
     requestAnimationFrame(() => renderScore(events || []))
 }
 
+// --- Playback highlight -----------------------------------------------------
+// Rendered notes tagged with their MIDI pitches, so the notes currently
+// sounding (tracked from the playback stream) can be lit up. Rests have an
+// empty pitch set and never highlight.
+let scoreNoteEntries = []      // [{ el:SVGGElement, notes:Set<number> }]
+const scoreActive = new Set()  // MIDI notes currently held during playback
+
+function scoreApplyHighlight() {
+    for (const entry of scoreNoteEntries) {
+        let on = false
+        for (const n of entry.notes) { if (scoreActive.has(n)) { on = true; break } }
+        entry.el.classList.toggle('score-playing', on)
+    }
+}
+
+// Passive follow-along: whenever the score modal is open and something is
+// playing (started from any Play button), light the matching notes. Opening
+// the score does not itself start playback.
+onPlaybackEvent((data) => {
+    if (!scoreModal || scoreModal.classList.contains('hidden')) return
+    const ev = data.event
+    if (isNoteOn(ev)) scoreActive.add(ev.note)
+    else if (isNoteOff(ev)) scoreActive.delete(ev.note)
+    scoreApplyHighlight()
+})
+
+onPlaybackStatus((status) => {
+    if (status === 'ended') { scoreActive.clear(); scoreApplyHighlight() }
+})
+
 function renderScore(events) {
     scoreContainer.innerHTML = ''
+    scoreNoteEntries = []
+    scoreActive.clear()
     const VF = window.Vex && window.Vex.Flow
     if (!VF) {
         scoreContainer.innerHTML = '<div class="history-empty">Score library failed to load.</div>'
@@ -219,6 +251,14 @@ function renderScore(events) {
         new VF.Formatter().joinVoices([tVoice]).joinVoices([bVoice]).format([tVoice, bVoice], w - 30)
         tVoice.draw(ctx, treble)
         bVoice.draw(ctx, bass)
+
+        // Tag each drawn StaveNote (now it has an SVG group) with its pitches.
+        measure.forEach((chord, ci) => {
+            const treb = trebleNotes[ci], bas = bassNotes[ci]
+            const trebEl = treb.getSVGElement(), basEl = bas.getSVGElement()
+            if (trebEl) scoreNoteEntries.push({ el: trebEl, notes: new Set(chord.notes.filter(n => n >= SCORE_SPLIT_NOTE)) })
+            if (basEl) scoreNoteEntries.push({ el: basEl, notes: new Set(chord.notes.filter(n => n < SCORE_SPLIT_NOTE)) })
+        })
     })
 
     if (capped) {

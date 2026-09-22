@@ -1741,3 +1741,9 @@ main,
 	font-size: 0.8rem;
 	color: #888;
 }
+
+/* A note currently sounding during playback (whole StaveNote group turns red). */
+.score-container svg .score-playing path {
+	fill: #ef4444;
+	stroke: #ef4444;
+}
