@@ -217,6 +217,7 @@ async function loadRecentImports() {
         </div>
     `).join('')
     repositionIOPreview(ioRecentList, 'recent:')
+    updateIOPlayButtons()
 }
 
 ioRecentList.addEventListener('click', async (e) => {
@@ -228,13 +229,22 @@ ioRecentList.addEventListener('click', async (e) => {
     const title = rec.name
 
     if (e.target.closest('.io-recent-play')) {
-        await playMidiBlob(rec.data, rec.name)
-        // Preview follows playback: if it's already open (for this import,
-        // a different import, or a session), switch it to what's now playing.
-        if (!ioPreview.classList.contains('hidden')) {
-            openIOPianoRoll(await parseMidiBlob(rec.data, rec.name), {
-                title, anchorKey: `recent:${id}`, anchorEl: row, forceOpen: true, seekable: 'events',
-            })
+        const key = `recent:${id}`
+        if (ioPlayingKey === key) {
+            await fetch('/api/playback/stop', { method: 'POST' })
+            ioPlayingKey = null
+            updateIOPlayButtons()
+        } else {
+            await playMidiBlob(rec.data, rec.name)
+            ioPlayingKey = key
+            updateIOPlayButtons()
+            // Preview follows playback: if it's already open (for this import,
+            // a different import, or a session), switch it to what's now playing.
+            if (!ioPreview.classList.contains('hidden')) {
+                openIOPianoRoll(await parseMidiBlob(rec.data, rec.name), {
+                    title, anchorKey: key, anchorEl: row, forceOpen: true, seekable: 'events',
+                })
+            }
         }
     } else if (e.target.closest('.io-recent-piano')) {
         openIOPianoRoll(await parseMidiBlob(rec.data, rec.name), { title, anchorKey: `recent:${id}`, anchorEl: row, seekable: 'events' })
@@ -278,21 +288,32 @@ async function loadIOSessions() {
             </div>
         `).join('')
         repositionIOPreview(ioSessionList, 'session:')
-        updateIOSessionPlayButtons()
+        updateIOPlayButtons()
     } catch (err) {
         console.error('Failed to load sessions:', err)
         ioSessionList.innerHTML = '<div class="history-empty">Failed to load sessions.</div>'
     }
 }
 
-// ---- Session play/stop (one playback active at a time, server-side) --------
-let ioPlayingSessionId = null
+// ---- Play/stop across both lists (one playback active at a time, server-side) --
+// Key is `session:<id>` or `recent:<id>`, whichever last started playback, so
+// clicking Play in one list also flips any other row (in either list) that
+// was showing Stop back to Play.
+let ioPlayingKey = null
 
-function updateIOSessionPlayButtons() {
+function updateIOPlayButtons() {
     ioSessionList.querySelectorAll('.io-item').forEach(row => {
         const btn = row.querySelector('.io-session-play')
         if (!btn) return
-        const playing = ioPlayingSessionId != null && String(ioPlayingSessionId) === row.dataset.id
+        const playing = ioPlayingKey === `session:${row.dataset.id}`
+        btn.innerHTML = playing ? '&#x23F9;' : '&#x25B6;'
+        btn.title = playing ? 'Stop' : 'Play'
+        btn.classList.toggle('playing', playing)
+    })
+    ioRecentList.querySelectorAll('.io-item').forEach(row => {
+        const btn = row.querySelector('.io-recent-play')
+        if (!btn) return
+        const playing = ioPlayingKey === `recent:${row.dataset.id}`
         btn.innerHTML = playing ? '&#x23F9;' : '&#x25B6;'
         btn.title = playing ? 'Stop' : 'Play'
         btn.classList.toggle('playing', playing)
@@ -301,8 +322,8 @@ function updateIOSessionPlayButtons() {
 
 onPlaybackStatus((status) => {
     if (status === 'ended') {
-        ioPlayingSessionId = null
-        updateIOSessionPlayButtons()
+        ioPlayingKey = null
+        updateIOPlayButtons()
     }
 })
 
@@ -315,10 +336,11 @@ ioSessionList.addEventListener('click', async (e) => {
     const title = row.querySelector('.title')?.textContent || 'Session'
 
     if (e.target.closest('.io-session-play')) {
-        if (ioPlayingSessionId === id) {
+        const key = `session:${id}`
+        if (ioPlayingKey === key) {
             await fetch('/api/playback/stop', { method: 'POST' })
-            ioPlayingSessionId = null
-            updateIOSessionPlayButtons()
+            ioPlayingKey = null
+            updateIOPlayButtons()
         } else {
             try {
                 await fetch('/api/playback/start', {
@@ -326,13 +348,13 @@ ioSessionList.addEventListener('click', async (e) => {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ start, end, output: outputSelect.value || undefined }),
                 })
-                ioPlayingSessionId = id
-                updateIOSessionPlayButtons()
+                ioPlayingKey = key
+                updateIOPlayButtons()
                 // Preview follows playback: if it's already open (for this
                 // song or another), switch it to the song that's now playing.
                 if (!ioPreview.classList.contains('hidden')) {
                     openIOPianoRoll(await fetchEventsRange(start, end), {
-                        start, end, title, anchorKey: `session:${id}`, anchorEl: row, forceOpen: true, seekable: true,
+                        start, end, title, anchorKey: key, anchorEl: row, forceOpen: true, seekable: true,
                     })
                 }
             } catch (err) {
