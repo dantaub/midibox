@@ -28,20 +28,26 @@ ship cold data to the cloud). Keeps the SD card and backups bounded.
 - *Effort:* small–medium. *First move:* a `DELETE FROM midi_events WHERE ...`
   maintenance query behind an endpoint or a scheduled task, plus a config knob.
 
-## 2. Import/Export tab — ✅ shipped (except score view)
+## 2. Import/Export tab — ✅ shipped
 
 Done: the **Import / Export** tab, a shared `public/piano-roll.js` component
 (Live + History preview + popup), session **export** to `.mid`
 (`GET /api/sessions/:id/export.mid`, `src/midi-file-write.ts`), `.mid` **import**
 for preview/play (`POST /api/midi/file/parse`), and the **piano-roll popup**.
 
-**Still to do — the score view (VexFlow).** Vendor VexFlow's UMD build into
-`public/vendor/`, add `public/score.js`, and render a session/imported file as
-notation in a modal (`openScoreView(events, {title})` is already referenced by
-the IO tab and the imported-file "Score" button). MIDI→notation needs
-quantization, 4/4 measures, and accidental mapping; document that timing is
-quantized and key/time signature are assumed. It's the most heuristic piece and
-was deliberately left last.
+Also done — the **score view** (`public/score.js`, VexFlow 4.2.5 UMD vendored
+into `public/vendor/`). `openScoreView(events, {title})` renders a session or
+imported file as notation in a modal: `pairNoteBars` → onset-grouped chords →
+quantized durations → 4/4 grand-staff measures (treble/bass split at middle C,
+sharp spellings, no key signature). Timing is quantized and 120 BPM / 4/4 are
+assumed (stated in the modal footer); voices render non-strict so partial
+measures don't need rest/tie padding, and output is capped at
+`SCORE_MAX_MEASURES`. It's heuristic by nature.
+
+**Possible follow-ups:** tempo/key detection to replace the fixed assumptions,
+split-across-barline durations with ties, and honoring an import's real
+rhythm/PPQ (the parse endpoint has `durationMs` but the score path treats every
+source as raw timestamped events for a single code path).
 
 ## 3. Analysis on the recordings
 

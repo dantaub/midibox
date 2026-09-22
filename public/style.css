@@ -1718,3 +1718,26 @@ main,
 	min-height: 0;
 	cursor: default;
 }
+
+/* Score view: notation renders as black glyphs, so it needs a light "paper". */
+.score-modal-body {
+	max-height: 82vh;
+	overflow: auto;
+}
+
+.score-container {
+	background: #fbfbf7;
+	border-radius: 6px;
+	overflow-x: auto;
+	min-height: 120px;
+}
+
+.score-container svg {
+	display: block;
+}
+
+.score-note {
+	margin: 0.5rem 0 0;
+	font-size: 0.8rem;
+	color: #888;
+}
