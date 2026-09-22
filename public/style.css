@@ -1541,15 +1541,15 @@ main,
 	gap: 0.5rem;
 }
 
-.io-toolbar .io-actions {
-	margin-top: 0;
-	margin-left: auto;
-	flex-wrap: wrap;
+.io-toolbar-title {
+	margin: 0;
+	margin-right: 0.5rem;
+	font-size: 1.1rem;
 }
 
-/* Natural-width buttons in the bar, not the stacked card's full-width ones. */
-.io-toolbar .io-actions .btn {
-	flex: 0 0 auto;
+.io-toolbar .file-info {
+	color: #888;
+	font-size: 0.85rem;
 }
 
 .io-toolbar .io-hint {

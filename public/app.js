@@ -1531,10 +1531,6 @@ function handlePlaybackStatus(data) {
         progressContainer.classList.add('active')
         btnPlayback.disabled = true
         btnStop.disabled = false
-        btnStopFile.disabled = false
-        btnPauseFile.disabled = false
-        btnPauseFile.dataset.paused = '0'
-        btnPauseFile.innerHTML = '&#x23F8; Pause'
         $('timelineStop').disabled = false
         $('timelinePlaySelection').disabled = true
     } else if (data.status === 'paused') {
@@ -1549,10 +1545,6 @@ function handlePlaybackStatus(data) {
         progressContainer.classList.remove('active')
         btnPlayback.disabled = false
         btnStop.disabled = true
-        btnStopFile.disabled = true
-        btnPauseFile.disabled = true
-        btnPauseFile.dataset.paused = '0'
-        btnPauseFile.innerHTML = '&#x23F8; Pause'
         $('timelineStop').disabled = true
         updatePlayButtons()
         clearPlaybackNotes()
@@ -2302,31 +2294,24 @@ sessionList.addEventListener('dblclick', async (e) => {
 
 // ===========================================
 // MIDI File Upload
+//
+// Selecting a file just imports it: it's stored in the browser and added to the
+// Imports list, where each row plays it and opens its piano roll / score. There
+// are no separate top-level file controls - the list rows are the interaction.
 // ===========================================
 const midiFileInput = $('midiFileInput')
 const btnSelectFile = $('btnSelectFile')
-const btnPlayFile = $('btnPlayFile')
-const btnPauseFile = $('btnPauseFile')
-const btnStopFile = $('btnStopFile')
-const btnFilePianoRoll = $('btnFilePianoRoll')
-const btnFileScore = $('btnFileScore')
 const fileInfo = $('fileInfo')
-let selectedMidiFile = null
-let importedEvents = []   // parsed note events of the selected file (timestamp = ms)
 
 btnSelectFile.addEventListener('click', () => midiFileInput.click())
 
 midiFileInput.addEventListener('change', async (e) => {
     const file = e.target.files[0]
     if (!file) return
-    selectedMidiFile = file
-    importedEvents = []
-    btnPlayFile.disabled = false
-    btnFilePianoRoll.disabled = true
-    btnFileScore.disabled = true
-    fileInfo.textContent = `${file.name} (${(file.size / 1024).toFixed(1)} KB) — parsing…`
+    fileInfo.textContent = `${file.name} (${(file.size / 1024).toFixed(1)} KB) — importing…`
 
-    // Remember the import in the browser (not on the server) and refresh the list
+    // Remember the import in the browser (not on the server) and refresh the
+    // list, so the new file appears as a row to play / view.
     try {
         await saveImport(file)
         if (typeof loadRecentImports === 'function') loadRecentImports()
@@ -2334,84 +2319,17 @@ midiFileInput.addEventListener('change', async (e) => {
         console.error('Failed to store import:', err)
     }
 
-    // Parse for preview (does not store or play). Playing uses /api/playback/file.
+    // Parse once for a friendly summary in the toolbar (does not store or play).
     try {
         const formData = new FormData()
         formData.append('file', file)
         const res = await fetch('/api/midi/file/parse', { method: 'POST', body: formData })
         const data = await res.json()
         if (data.error) throw new Error(data.error)
-        importedEvents = data.events || []
-        const notes = importedEvents.filter(isNoteOn).length
-        fileInfo.textContent = `${data.fileName} — ${notes} notes, ${Math.round(data.durationMs / 1000)}s`
-        btnFilePianoRoll.disabled = importedEvents.length === 0
-        btnFileScore.disabled = importedEvents.length === 0
+        const notes = (data.events || []).filter(isNoteOn).length
+        fileInfo.textContent = `${data.fileName} — ${notes} notes, ${Math.round(data.durationMs / 1000)}s (added below)`
     } catch (err) {
-        fileInfo.textContent = `${file.name} — could not parse (${err.message}); play may still work`
-    }
-})
-
-btnStopFile.addEventListener('click', async () => {
-    try {
-        await fetch('/api/playback/stop', { method: 'POST' })
-    } catch (err) {
-        console.error('Stop failed:', err)
-    }
-})
-
-btnPauseFile.addEventListener('click', async () => {
-    const paused = btnPauseFile.dataset.paused === '1'
-    try {
-        await fetch(paused ? '/api/playback/resume' : '/api/playback/pause', { method: 'POST' })
-    } catch (err) {
-        console.error('Pause/resume failed:', err)
-    }
-})
-
-btnFilePianoRoll.addEventListener('click', () => {
-    if (importedEvents.length) {
-        openIOPianoRoll(importedEvents, {
-            title: selectedMidiFile?.name || 'MIDI file',
-            anchorKey: 'file',
-            anchorEl: btnFilePianoRoll.closest('.io-card'),
-        })
-    }
-})
-
-btnFileScore.addEventListener('click', () => {
-    if (importedEvents.length && typeof openScoreView === 'function') {
-        openScoreView(importedEvents, { title: selectedMidiFile?.name || 'MIDI file' })
-    }
-})
-
-btnPlayFile.addEventListener('click', async () => {
-    if (!selectedMidiFile) return
-
-    const output = outputSelect.value
-    const formData = new FormData()
-    formData.append('file', selectedMidiFile)
-    if (output) formData.append('output', output)
-
-    try {
-        btnPlayFile.disabled = true
-        btnPlayFile.textContent = '⏳ Loading...'
-
-        const res = await fetch('/api/playback/file', {
-            method: 'POST',
-            body: formData
-        })
-
-        const data = await res.json()
-        if (data.error) {
-            alert('Error: ' + data.error)
-        } else {
-            fileInfo.textContent = `Playing: ${data.fileName} (${data.eventCount} events)`
-        }
-    } catch (err) {
-        alert('Failed to play file: ' + err.message)
-    } finally {
-        btnPlayFile.textContent = '▶ Play File'
-        btnPlayFile.disabled = false
+        fileInfo.textContent = `${file.name} — could not parse (${err.message})`
     }
 })
 
