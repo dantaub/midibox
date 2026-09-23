@@ -40,11 +40,12 @@ Two things need attention on an existing install:
   preview and this tab share one `piano-roll.js` component (geometry, note
   pairing, chord-align, rendering).
 - **Score view** — render a session or imported `.mid` as staff notation in a
-  modal (`public/score.js`, VexFlow 4.2.5 vendored in `public/vendor/`). Note
+  panel under the Import/Export bar, like the piano roll (`public/score.js`, VexFlow 4.2.5 vendored in `public/vendor/`). Note
   events are grouped into chords by onset, quantized, and laid out as 4/4
   grand-staff measures. Timing is approximate: quantized, with 4/4 and 120 BPM
   assumed and pitches spelled with sharps (no key signature); output is capped
-  at 64 measures.
+  at 64 measures. The playing chord lights up and scrolls into view, and
+  stays in step after a seek.
 - **Pluggable MIDI transports** — device I/O now sits behind a transport
   interface selected by an address scheme. Linux defaults to the ALSA sequencer
   by name (`seq`, via `@julusian/midi`/RtMidi), which is PipeWire-shareable and

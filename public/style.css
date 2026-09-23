@@ -1747,6 +1747,13 @@ main,
 	pointer-events: none;
 }
 
+/* Score panel: the notation scrolls on its own (following the playing
+   chord) under a fixed channel / time / key toolbar */
+.io-score-body .score-container {
+	max-height: 55vh;
+	overflow-y: auto;
+}
+
 /* Read-only piano roll: no interaction cursors */
 .io-preview-body .timeline-container,
 .piano-roll-modal-body .timeline-container {
@@ -1770,7 +1777,7 @@ main,
 }
 
 /* ===========================================
-   Modal (piano-roll / score popups)
+   Modal (piano-roll popup)
    =========================================== */
 .modal-overlay {
 	position: fixed;
@@ -1845,11 +1852,6 @@ main,
 }
 
 /* Score view: notation renders as black glyphs, so it needs a light "paper". */
-.score-modal-body {
-	max-height: 82vh;
-	overflow: auto;
-}
-
 .score-toolbar {
 	display: flex;
 	flex-wrap: wrap;

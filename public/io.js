@@ -3,11 +3,12 @@
 //
 // Loaded after piano-roll.js, imports-db.js, app.js, history.js. Reuses their
 // globals ($, escapeHtml, createPianoRoll, isNoteOn, outputSelect,
-// saveImport/listImports/getImport/deleteImport, openScoreView).
+// saveImport/listImports/getImport/deleteImport, openScoreView,
+// scoreHighlightAt, relayoutScoreView).
 //
 // Layout: a sticky transport bar (Import button + whatever is selected or
 // playing: title, date, play/pause, stop, elapsed/total, piano roll, score),
-// then the piano-roll preview for that item, then the Imports and Sessions
+// then the piano-roll and score panels for that item, then the Imports and Sessions
 // lists. Rows only carry per-item actions (play, download, delete); clicking a
 // row selects it into the bar.
 // ===========================================
@@ -26,6 +27,9 @@ const ioTimeEl = $('ioTime')
 const ioPianoBtn = $('ioPiano')
 const ioScoreBtn = $('ioScore')
 const ioProgressFill = $('ioProgressFill')
+const ioScorePanel = $('ioScorePanel')
+const ioScoreBody = $('ioScoreBody')
+const ioScoreTitle = $('ioScoreTitle')
 
 // ---- Items -----------------------------------------------------------------
 // Every row in either list is an item keyed `import:<id>` or `session:<id>`.
@@ -101,6 +105,7 @@ function renderClock() {
     if (ioPlayingKey && ioPreviewInstance && ioPreviewKey === ioPlayingKey) {
         ioPreviewInstance.setPlayhead(clkPos())
     }
+    if (ioScoreKey) scoreHighlightAt(ioPlayingKey && ioScoreKey === ioPlayingKey ? clkPos() : -1)
 }
 
 function startClock() {
@@ -231,10 +236,14 @@ function renderBar() {
     ioNowMeta.textContent = item ? item.meta : 'Import a .mid file, or pick an import or session below'
     if (key !== ioBarShown) {
         ioBarShown = key
-        // The open preview follows the bar.
+        // Open piano roll / score panels follow the bar.
         if (!ioPreview.classList.contains('hidden')) {
             if (item) openIOPreviewFor(key)
             else closeIOPreview()
+        }
+        if (ioScoreKey) {
+            if (item) openIOScoreFor(key)
+            else closeIOScore()
         }
     }
     updateIOButtons()
@@ -256,6 +265,7 @@ function updateIOButtons() {
     ioStopBtn.disabled = !ioPlayingKey
     setPlayBtn(ioPlayPauseBtn, barKey())
     ioPianoBtn.classList.toggle('active', !ioPreview.classList.contains('hidden'))
+    ioScoreBtn.classList.toggle('active', !!ioScoreKey)
     for (const row of ioView.querySelectorAll('.io-item')) {
         row.classList.toggle('selected', row.dataset.key === ioCurrentKey)
         const btn = row.querySelector('.io-row-play')
@@ -265,9 +275,9 @@ function updateIOButtons() {
 
 ioPlayPauseBtn.addEventListener('click', () => ioToggle(barKey()))
 ioStopBtn.addEventListener('click', ioStop)
-ioScoreBtn.addEventListener('click', async () => {
-    const item = ioItems.get(barKey())
-    if (item && typeof openScoreView === 'function') openScoreView(await ioEventsFor(item), { title: item.title })
+ioScoreBtn.addEventListener('click', () => {
+    if (ioScoreKey) closeIOScore()
+    else if (barKey()) openIOScoreFor(barKey(), { scroll: true })
 })
 ioPianoBtn.addEventListener('click', () => {
     if (!ioPreview.classList.contains('hidden')) closeIOPreview()
@@ -326,7 +336,39 @@ function closeIOPreview() {
 }
 
 $('ioPreviewClose').addEventListener('click', closeIOPreview)
-window.addEventListener('resize', () => { if (ioPreviewInstance) ioPreviewInstance.resize() })
+
+// ---- Score (a panel like the piano roll, shows the bar's item) -------------
+let ioScoreKey = null
+
+async function openIOScoreFor(key, { scroll = false } = {}) {
+    const item = ioItems.get(key)
+    if (!item) return
+    ioScoreKey = key
+    ioScoreTitle.textContent = `Score — ${item.title}`
+    ioScorePanel.classList.remove('hidden')
+    updateIOButtons()
+    if (scroll) ioScorePanel.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    const evs = await ioEventsFor(item)
+    if (ioScoreKey !== key) return   // closed or moved on while loading
+    openScoreView(evs, { host: ioScoreBody })
+    renderClock()
+}
+
+function closeIOScore() {
+    ioScoreKey = null
+    ioScorePanel.classList.add('hidden')
+    updateIOButtons()
+}
+
+$('ioScoreClose').addEventListener('click', closeIOScore)
+
+let ioResizeTimer = null
+window.addEventListener('resize', () => {
+    if (ioPreviewInstance) ioPreviewInstance.resize()
+    // The score lays out measures to the width; re-flow once resizing settles.
+    clearTimeout(ioResizeTimer)
+    ioResizeTimer = setTimeout(() => { if (ioScoreKey) relayoutScoreView() }, 200)
+})
 
 // ---- Shared helpers --------------------------------------------------------
 async function fetchEventsRange(start, end) {

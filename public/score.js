@@ -143,10 +143,9 @@ function scoreBuildNote(VF, clef, midiNotes, durCode, useFlats) {
     return new VF.StaveNote({ clef, keys, duration: durCode })
 }
 
-// --- Modal shell (built once, reused) ---------------------------------------
-let scoreModal = null
+// --- View shell (built once into its host, reused) --------------------------
+let scoreHost = null        // element the view is built into
 let scoreContainer = null
-let scoreTitleEl = null
 let scoreChannelSel = null
 let scoreTimeSel = null
 let scoreKeySel = null
@@ -155,32 +154,21 @@ let scoreKeySel = null
 let scoreEvents = []
 let scoreOpts = { channel: 'no-drums', timeSig: '4/4', key: 'C' }
 
-function ensureScoreModal() {
-    if (scoreModal) return
-    scoreModal = document.createElement('div')
-    scoreModal.className = 'modal-overlay hidden'
-    scoreModal.innerHTML = `
-        <div class="modal score-modal">
-            <div class="modal-header">
-                <span class="modal-title" id="scoreModalTitle">Score</span>
-                <button class="modal-close" id="scoreModalClose" title="Close">&#x2715;</button>
-            </div>
-            <div class="modal-body score-modal-body">
-                <div class="score-toolbar">
-                    <label>Channel <select id="scoreChannel"></select></label>
-                    <label>Time <select id="scoreTimeSig"></select></label>
-                    <label>Key <select id="scoreKey"></select></label>
-                </div>
-                <div id="scoreContainer" class="score-container"></div>
-                <p class="score-note">Notation is approximate: timing is quantized and 120&nbsp;BPM is assumed. Use the controls above to pick a channel, time signature and key.</p>
-            </div>
-        </div>`
-    document.body.appendChild(scoreModal)
-    scoreContainer = scoreModal.querySelector('#scoreContainer')
-    scoreTitleEl = scoreModal.querySelector('#scoreModalTitle')
-    scoreChannelSel = scoreModal.querySelector('#scoreChannel')
-    scoreTimeSel = scoreModal.querySelector('#scoreTimeSig')
-    scoreKeySel = scoreModal.querySelector('#scoreKey')
+function ensureScoreView(host) {
+    if (scoreHost === host) return
+    scoreHost = host
+    host.innerHTML = `
+        <div class="score-toolbar">
+            <label>Channel <select class="score-channel"></select></label>
+            <label>Time <select class="score-timesig"></select></label>
+            <label>Key <select class="score-key"></select></label>
+        </div>
+        <div class="score-container"></div>
+        <p class="score-note">Notation is approximate: timing is quantized and 120&nbsp;BPM is assumed. Use the controls above to pick a channel, time signature and key.</p>`
+    scoreContainer = host.querySelector('.score-container')
+    scoreChannelSel = host.querySelector('.score-channel')
+    scoreTimeSel = host.querySelector('.score-timesig')
+    scoreKeySel = host.querySelector('.score-key')
 
     scoreTimeSel.innerHTML = SCORE_TIME_SIGS.map(s => `<option value="${s}">${s}</option>`).join('')
     scoreKeySel.innerHTML = SCORE_KEYS.map(k => `<option value="${k}">${k} major</option>`).join('')
@@ -188,12 +176,6 @@ function ensureScoreModal() {
     scoreChannelSel.addEventListener('change', () => { scoreOpts.channel = scoreChannelSel.value; renderScore() })
     scoreTimeSel.addEventListener('change', () => { scoreOpts.timeSig = scoreTimeSel.value; renderScore() })
     scoreKeySel.addEventListener('change', () => { scoreOpts.key = scoreKeySel.value; renderScore() })
-
-    scoreModal.querySelector('#scoreModalClose').addEventListener('click', closeScoreView)
-    scoreModal.addEventListener('click', (e) => { if (e.target === scoreModal) closeScoreView() })
-    document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape' && !scoreModal.classList.contains('hidden')) closeScoreView()
-    })
 }
 
 // Rebuild the channel dropdown from the channels actually present in the file.
@@ -212,22 +194,23 @@ function scorePopulateChannels(events) {
     scoreChannelSel.value = 'no-drums'
 }
 
-function closeScoreView() {
-    if (scoreModal) scoreModal.classList.add('hidden')
-}
-
-// Public entry point (referenced by io.js and the imported-file Score button).
-function openScoreView(events, { title } = {}) {
-    ensureScoreModal()
+// Public entry point (io.js): render `events` as a score inside `host`, a
+// visible element whose width sets the layout. The toolbar stays put; only
+// the notation (.score-container) scrolls.
+function openScoreView(events, { host } = {}) {
+    ensureScoreView(host)
     scoreEvents = events || []
     scoreOpts = { channel: 'no-drums', timeSig: '4/4', key: 'C' }
-    scoreTitleEl.textContent = title ? `Score — ${title}` : 'Score'
     scorePopulateChannels(scoreEvents)
     scoreTimeSel.value = '4/4'
     scoreKeySel.value = 'C'
-    scoreModal.classList.remove('hidden')
-    // Render after the modal is visible so the container has a real width.
-    requestAnimationFrame(() => renderScore())
+    scoreContainer.scrollTop = 0
+    renderScore()
+}
+
+// Re-lay out for a new width (keeps the chosen channel / time / key).
+function relayoutScoreView() {
+    if (scoreHost && scoreHost.offsetParent) renderScore()
 }
 
 // --- Playback highlight -----------------------------------------------------
@@ -236,33 +219,24 @@ function openScoreView(events, { title } = {}) {
 // position lights up - matching by time, not pitch, so a pitch that repeats in
 // later measures doesn't light them all at once.
 let scoreChordEls = []   // [{ els:SVGGElement[], start:number, until:number }]
-let scoreRangeStart = 0  // first/last event timestamp of what's rendered, so
-let scoreRangeEnd = 1    // the playback progress (0..1) maps back to a time
 let scoreLit = []        // currently-lit elements, cleared on each update
 
+// Light the chord sounding at `ms` (same clock as the events' timestamps);
+// -1 clears. Driven by io.js's transport clock, so it stays right after a seek.
+// Keeps the lit chord in view by scrolling the notation box, not the page.
 function scoreHighlightAt(ms) {
+    const next = scoreChordEls.find(c => ms >= c.start && ms < c.until)
+    if (next && scoreLit.length && next.els[0] === scoreLit[0]) return
     for (const el of scoreLit) el.classList.remove('score-playing')
     scoreLit = []
-    for (const chord of scoreChordEls) {
-        if (ms >= chord.start && ms < chord.until) {
-            for (const el of chord.els) { el.classList.add('score-playing'); scoreLit.push(el) }
-        }
+    if (!next) return
+    for (const el of next.els) { el.classList.add('score-playing'); scoreLit.push(el) }
+    const view = scoreContainer.getBoundingClientRect()
+    const box = next.els[0].getBoundingClientRect()
+    if (box.top < view.top || box.bottom > view.bottom) {
+        scoreContainer.scrollTop += box.top - view.top - view.height / 3
     }
 }
-
-// Passive follow-along: whenever the score modal is open and something is
-// playing (started from any Play button), light the chord at the current
-// position. Opening the score does not itself start playback. Assumes the
-// thing playing is what's shown - progress maps onto the rendered time range.
-onPlaybackEvent((data) => {
-    if (!scoreModal || scoreModal.classList.contains('hidden')) return
-    if (typeof data.progress !== 'number') return
-    scoreHighlightAt(scoreRangeStart + data.progress * (scoreRangeEnd - scoreRangeStart))
-})
-
-onPlaybackStatus((status) => {
-    if (status === 'ended') scoreHighlightAt(-1)
-})
 
 function renderScore() {
     scoreContainer.innerHTML = ''
@@ -275,8 +249,6 @@ function renderScore() {
     }
 
     const events = scoreFilterByChannel(scoreEvents, scoreOpts.channel)
-    scoreRangeStart = events.length ? events[0].timestamp : 0
-    scoreRangeEnd = events.length ? events[events.length - 1].timestamp : 1
 
     const endTime = events.length ? events[events.length - 1].timestamp : 0
     const bars = pairNoteBars(events, endTime)

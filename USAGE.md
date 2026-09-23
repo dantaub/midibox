@@ -117,7 +117,8 @@ The **Import / Export** tab lists imported `.mid` files (format 0 or 1, kept in
 your browser, never in the server database) and recorded sessions. A bar pinned
 to the top of the tab holds **Import .mid** and the transport for the selected
 item: its name and date, play/pause, stop, elapsed / total time, piano roll and
-score. Click a row to select it. Each row also has its own play, download
+score. Piano roll and score open as panels under the bar, show the playing (or
+selected) item and follow along during playback. Click a row to select it. Each row also has its own play, download
 (`.mid`) and delete buttons; delete asks for a second click. Playback includes
 tempo changes; drag the piano roll's playhead to seek.
 
