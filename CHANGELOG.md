@@ -31,10 +31,14 @@ Two things need attention on an existing install:
 
 - **Import / Export tab** — export any recorded session to a Standard MIDI File
   (`GET /api/sessions/:id/export.mid`), import a `.mid` for preview/play without
-  saving it (`POST /api/midi/file/parse`), and view either in a **piano-roll
-  popup** that reuses the main keyboard + vertical timeline. The Live view,
-  History preview and popup now share one `piano-roll.js` component (geometry,
-  note pairing, chord-align, rendering), and the "Load MIDI" control moved here.
+  saving it on the server (`POST /api/midi/file/parse`; imports are kept in the
+  browser), and view either as a **piano roll** that reuses the main keyboard +
+  vertical timeline. A sticky transport bar holds **Import .mid** plus
+  play/pause, stop, elapsed / total time, piano roll and score for the playing
+  (or selected) item, so they stay in view while the lists scroll; rows carry
+  play, download and delete (click twice to confirm). The Live view, History
+  preview and this tab share one `piano-roll.js` component (geometry, note
+  pairing, chord-align, rendering).
 - **Score view** — render a session or imported `.mid` as staff notation in a
   modal (`public/score.js`, VexFlow 4.2.5 vendored in `public/vendor/`). Note
   events are grouped into chords by onset, quantized, and laid out as 4/4

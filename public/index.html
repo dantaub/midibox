@@ -220,20 +220,30 @@
 
     <!-- Import / Export tab -->
     <section class="view io-view hidden" id="viewIO">
-        <!-- Imports header: sticks under the title bar while the tab scrolls.
-             Select a file to add it to the list below, then play / view its
-             piano roll or score from its row. -->
+        <!-- Transport bar: sticks under the title bar while the tab scrolls.
+             Import a file, and control whatever is selected / playing (click a
+             row below to select it). -->
         <div class="io-toolbar" id="ioToolbar">
             <div class="io-toolbar-main">
-                <h2 class="io-toolbar-title">Imports</h2>
                 <input type="file" id="midiFileInput" accept=".mid,.midi" hidden>
-                <button class="btn btn-secondary" id="btnSelectFile">Select File</button>
-                <div id="fileInfo" class="file-info"></div>
+                <button class="btn btn-primary io-import-btn" id="btnSelectFile" title="Import a .mid file">&#xFF0B; Import .mid</button>
+                <div class="io-now">
+                    <div class="io-now-title" id="ioNowTitle">Nothing selected</div>
+                    <div class="io-now-meta" id="ioNowMeta">Import a .mid file, or pick an import or session below</div>
+                </div>
+                <div class="io-transport">
+                    <button class="btn-icon" id="ioPlayPause" title="Play" disabled>&#x25B6;</button>
+                    <button class="btn-icon" id="ioStop" title="Stop" disabled>&#x23F9;</button>
+                    <span class="io-time" id="ioTime">0:00 / –:––</span>
+                    <button class="btn-icon" id="ioPiano" title="Piano roll" disabled>&#x1F3B9;</button>
+                    <button class="btn-icon" id="ioScore" title="Score" disabled>&#x1D11E;</button>
+                </div>
             </div>
-            <p class="io-hint">Load a <code>.mid</code> to add it below, then play or view it from its row. Imports are kept in your browser, not on the server.</p>
+            <div class="io-progress"><div class="io-progress-fill" id="ioProgressFill"></div></div>
+            <div id="fileInfo" class="file-info"></div>
         </div>
 
-        <!-- Inline preview: the piano roll expands directly below the row that opened it -->
+        <!-- Piano roll of the selected item (toggled from the bar) -->
         <div class="card io-card io-preview hidden" id="ioPreview">
             <div class="io-preview-header">
                 <span class="io-preview-title" id="ioPreviewTitle">Piano roll</span>
@@ -242,17 +252,19 @@
             <div class="io-preview-body" id="ioPreviewBody"></div>
         </div>
 
-        <div class="io-recent-list" id="ioRecentList">
-            <div class="history-empty">No imports yet. Select a file above.</div>
-        </div>
+        <section class="io-section">
+            <h3 class="io-section-title">Imports <span class="io-section-note">kept in this browser, not on the server</span></h3>
+            <div class="io-recent-list" id="ioRecentList">
+                <div class="history-empty">No imports yet.</div>
+            </div>
+        </section>
 
-        <div class="card io-card">
-            <h2>Export a session</h2>
-            <p class="io-hint">Download a recorded session as a Standard MIDI File, or view it.</p>
+        <section class="io-section">
+            <h3 class="io-section-title">Sessions <span class="io-section-note">recorded on the server &middot; download as .mid</span></h3>
             <div class="io-session-list" id="ioSessionList">
                 <div class="history-empty">Loading&hellip;</div>
             </div>
-        </div>
+        </section>
     </section>
 
     <!-- Floating event log window (toggled from the header) -->

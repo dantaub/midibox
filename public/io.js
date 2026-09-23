@@ -4,161 +4,329 @@
 // Loaded after piano-roll.js, imports-db.js, app.js, history.js. Reuses their
 // globals ($, escapeHtml, createPianoRoll, isNoteOn, outputSelect,
 // saveImport/listImports/getImport/deleteImport, openScoreView).
+//
+// Layout: a sticky transport bar (Import button + whatever is selected or
+// playing: title, date, play/pause, stop, elapsed/total, piano roll, score),
+// then the piano-roll preview for that item, then the Imports and Sessions
+// lists. Rows only carry per-item actions (play, download, delete); clicking a
+// row selects it into the bar.
 // ===========================================
 
+const ioView = $('viewIO')
 const ioSessionList = $('ioSessionList')
 const ioRecentList = $('ioRecentList')
 const ioPreview = $('ioPreview')
 const ioPreviewBody = $('ioPreviewBody')
 const ioPreviewTitle = $('ioPreviewTitle')
+const ioNowTitle = $('ioNowTitle')
+const ioNowMeta = $('ioNowMeta')
+const ioPlayPauseBtn = $('ioPlayPause')
+const ioStopBtn = $('ioStop')
+const ioTimeEl = $('ioTime')
+const ioPianoBtn = $('ioPiano')
+const ioScoreBtn = $('ioScore')
+const ioProgressFill = $('ioProgressFill')
 
-// ---- Inline piano-roll preview (expands on the page; no modal) -------------
-let ioPreviewInstance = null
-// Identifies which "Piano roll" button opened the preview, so clicking that
-// same button again toggles it closed instead of just re-rendering it.
-let ioPreviewAnchorKey = null
+// ---- Items -----------------------------------------------------------------
+// Every row in either list is an item keyed `import:<id>` or `session:<id>`.
+//   { key, kind, id, title, meta, start?, end?, rec? }
+const ioItems = new Map()
+let ioCurrentKey = null   // last selected row
+let ioPlayingKey = null   // item the server is playing (started from this tab)
+let ioPaused = false
 
-function placeIOPreviewAfter(el) {
-    if (el) el.insertAdjacentElement('afterend', ioPreview)
+// The bar shows what's playing; otherwise the selected row.
+function barKey() {
+    return ioPlayingKey ?? ioCurrentKey
 }
 
-// Drag the playhead handle to jump playback elsewhere in the song. Only
-// meaningful when start/end are real timestamps in the recorded-event store
-// (true for sessions; not for an uploaded/parsed .mid file's own 0-based
-// timestamps), so callers opt in with `seekable`.
-async function seekIOPreview(t) {
-    const newStart = Math.round(t)
-    // Notes highlighted from before the jump no longer reflect what's
-    // playing at the new position - drop them so the keyboard doesn't
-    // show stale/stuck-on keys until fresh noteon/noteoff events arrive.
-    if (ioPreviewInstance) ioPreviewInstance.clearHighlights()
-    try {
-        // Sessions are recorded in the DB, so the server can slice
-        // [newStart, previewEnd] itself. A parsed-but-unstored import (recent
-        // imports) has no DB rows, so we slice the events we already have
-        // client-side and send them along instead.
-        const payload = previewSeekMode === 'events'
-            ? { events: ioPreviewEvents.filter(e => e.timestamp >= newStart && e.timestamp <= previewEnd), output: outputSelect.value || undefined }
-            : { start: newStart, end: previewEnd, output: outputSelect.value || undefined }
-        await fetch('/api/playback/start', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload),
+// Parsed/fetched events per item, so the bar, preview and score share one fetch.
+// Loading them also fills in item.bounds (see ioSongBounds) for the bar's clock.
+const ioEventsCache = new Map()
+
+function ioEventsFor(item) {
+    if (!ioEventsCache.has(item.key)) {
+        const p = (item.kind === 'import'
+            ? parseMidiBlob(item.rec.data, item.rec.name)
+            : fetchEventsRange(item.start, item.end)
+        ).then(evs => {
+            // Lists re-render into fresh item objects; set bounds on the live one.
+            const live = ioItems.get(item.key) || item
+            live.bounds = item.bounds = ioSongBounds(item, evs)
+            return evs
         })
-        // The server now reports progress (0..1) over [newStart, previewEnd],
-        // not the original song span - rebase so the interpolated line keeps
-        // landing in the right place instead of snapping back on the next
-        // playback-event message.
-        previewStart = newStart
-        pbProgress = 0
-        pbAt = performance.now()
-    } catch (err) {
-        console.error('Seek failed:', err)
+        // Don't cache failures - the next click retries.
+        ioEventsCache.set(item.key, p.catch(err => { ioEventsCache.delete(item.key); throw err }))
+    }
+    return ioEventsCache.get(item.key)
+}
+
+// Song bounds used by the clock and preview. Imports are 0-based (server
+// progress is timeMs / last event); sessions span their first..last event,
+// which is what the server's progress is measured over.
+function ioSongBounds(item, evs) {
+    if (item.kind === 'import') return { start: 0, end: evs.length ? evs[evs.length - 1].timestamp : 0 }
+    if (!evs.length) return { start: item.start, end: item.end }
+    return { start: evs[0].timestamp, end: evs[evs.length - 1].timestamp }
+}
+
+// ---- Transport clock -------------------------------------------------------
+// Tracks the playback position between server updates so the bar's time,
+// progress line and the preview's playhead glide instead of stepping.
+// Only describes the playing item; song length comes from the bar item's bounds.
+const clk = {
+    segStart: 0, segEnd: 0,     // what the server is playing (moves on seek)
+    progress: 0, at: 0,         // last server progress (0..1 over seg) and when
+}
+let clkRaf = null
+
+function clkPos() {
+    const span = Math.max(1, clk.segEnd - clk.segStart)
+    let p = clk.progress
+    if (ioPlayingKey && !ioPaused) p += (performance.now() - clk.at) / span
+    return clk.segStart + Math.max(0, Math.min(1, p)) * (clk.segEnd - clk.segStart)
+}
+
+function fmtTime(ms) {
+    const s = Math.max(0, Math.round(ms / 1000))
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+}
+
+function renderClock() {
+    const bounds = ioItems.get(barKey())?.bounds
+    const total = bounds ? bounds.end - bounds.start : 0
+    const elapsed = ioPlayingKey && bounds ? clkPos() - bounds.start : 0
+    ioTimeEl.textContent = `${fmtTime(elapsed)} / ${total > 0 ? fmtTime(total) : '–:––'}`
+    ioProgressFill.style.width = total > 0 ? `${Math.min(100, (elapsed / total) * 100)}%` : '0%'
+    if (ioPlayingKey && ioPreviewInstance && ioPreviewKey === ioPlayingKey) {
+        ioPreviewInstance.setPlayhead(clkPos())
     }
 }
 
-function openIOPianoRoll(events, { title, start, end, anchorKey, anchorEl, forceOpen, seekable } = {}) {
-    // forceOpen skips the toggle-closed check: used when playback switches to
-    // a different song while the preview is already open, so it follows the
-    // new song instead of closing.
-    if (!forceOpen && anchorKey && anchorKey === ioPreviewAnchorKey && !ioPreview.classList.contains('hidden')) {
-        closeIOPreview()
-        return
+function startClock() {
+    if (clkRaf != null) return
+    const tick = () => {
+        renderClock()
+        clkRaf = ioPlayingKey && !ioPaused ? requestAnimationFrame(tick) : null
     }
-    ioPreviewAnchorKey = anchorKey || null
+    clkRaf = requestAnimationFrame(tick)
+}
 
+function stopClock() {
+    if (clkRaf != null) cancelAnimationFrame(clkRaf)
+    clkRaf = null
+    renderClock()
+}
+
+onPlaybackEvent((data) => {
+    if (!ioPlayingKey) return
+    clk.progress = data.progress
+    clk.at = performance.now()
+    if (ioPreviewInstance && ioPreviewKey === ioPlayingKey) {
+        const ev = data.event
+        if (isNoteOn(ev)) ioPreviewInstance.highlight(ev.note, true)
+        else if (isNoteOff(ev)) ioPreviewInstance.highlight(ev.note, false)
+    }
+    startClock()
+})
+
+onPlaybackStatus((status) => {
+    if (!ioPlayingKey) return
+    if (status === 'paused') {
+        // Freeze the estimate where it is, so the clock doesn't run on.
+        const span = Math.max(1, clk.segEnd - clk.segStart)
+        clk.progress = (clkPos() - clk.segStart) / span
+        clk.at = performance.now()
+        ioPaused = true
+        stopClock()
+        if (ioPreviewInstance) ioPreviewInstance.clearHighlights()
+    } else if (status === 'resumed') {
+        clk.at = performance.now()
+        ioPaused = false
+        startClock()
+    } else if (status === 'ended') {
+        ioResetPlayback()
+    }
+    updateIOButtons()
+})
+
+// Playback over: the bar falls back to the selected row.
+function ioResetPlayback() {
+    if (!ioPlayingKey) return
+    ioPlayingKey = null
+    ioPaused = false
+    clk.progress = 0
+    stopClock()
+    if (ioPreviewInstance) ioPreviewInstance.clearHighlights()
+    renderBar()
+}
+
+// ---- Playback --------------------------------------------------------------
+async function ioPlay(key, { from } = {}) {
+    const item = ioItems.get(key)
+    if (!item) return
+    try {
+        const evs = await ioEventsFor(item)
+        const song = item.bounds
+        const at = from ?? song.start
+        if (item.kind === 'import' && from == null) {
+            await playMidiBlob(item.rec.data, item.rec.name)
+        } else {
+            // Sessions are recorded in the DB, so the server slices the range
+            // itself. An import has no DB rows, so a seek sends the client-side
+            // slice of its parsed events instead.
+            const payload = item.kind === 'import'
+                ? { events: evs.filter(e => e.timestamp >= at), output: outputSelect.value || undefined }
+                : { start: Math.round(at), end: item.end, output: outputSelect.value || undefined }
+            await fetch('/api/playback/start', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            })
+        }
+        ioPlayingKey = key
+        ioCurrentKey = key
+        ioPaused = false
+        Object.assign(clk, { segStart: at, segEnd: song.end, progress: 0, at: performance.now() })
+        if (ioPreviewInstance) ioPreviewInstance.clearHighlights()
+        renderBar()
+        startClock()
+    } catch (err) {
+        console.error('Playback failed:', err)
+    }
+}
+
+async function ioStop() {
+    await fetch('/api/playback/stop', { method: 'POST' })
+    // The server only announces 'ended' if something was actually playing
+    // (an empty session never starts), so reset here too.
+    ioResetPlayback()
+}
+
+// Play / pause / resume for one item - shared by the bar and the row buttons.
+async function ioToggle(key) {
+    if (!key) return
+    if (ioPlayingKey !== key) return ioPlay(key)
+    await fetch(ioPaused ? '/api/playback/resume' : '/api/playback/pause', { method: 'POST' })
+}
+
+// ---- Selection and the bar -------------------------------------------------
+// Clicking a row selects it. While something is playing the bar keeps showing
+// that; the selection takes over once playback stops.
+function selectIOItem(key) {
+    const item = ioItems.get(key)
+    if (!item) return
+    ioCurrentKey = key
+    // Total time needs the events; fetch (cached) and fill it in.
+    ioEventsFor(item).then(() => { if (barKey() === key) renderClock() }).catch(() => {})
+    renderBar()
+}
+
+let ioBarShown = null   // item the bar (and open preview) last rendered
+
+function renderBar() {
+    const key = barKey()
+    const item = ioItems.get(key)
+    ioNowTitle.textContent = item ? item.title : 'Nothing selected'
+    ioNowMeta.textContent = item ? item.meta : 'Import a .mid file, or pick an import or session below'
+    if (key !== ioBarShown) {
+        ioBarShown = key
+        // The open preview follows the bar.
+        if (!ioPreview.classList.contains('hidden')) {
+            if (item) openIOPreviewFor(key)
+            else closeIOPreview()
+        }
+    }
+    updateIOButtons()
+    renderClock()
+}
+
+function setPlayBtn(btn, key) {
+    const playing = ioPlayingKey === key && !ioPaused
+    btn.innerHTML = playing ? '&#x23F8;' : '&#x25B6;'
+    btn.title = playing ? 'Pause' : (ioPlayingKey === key ? 'Resume' : 'Play')
+    btn.classList.toggle('playing', ioPlayingKey === key)
+}
+
+function updateIOButtons() {
+    const has = !!barKey()
+    ioPlayPauseBtn.disabled = !has
+    ioPianoBtn.disabled = !has
+    ioScoreBtn.disabled = !has
+    ioStopBtn.disabled = !ioPlayingKey
+    setPlayBtn(ioPlayPauseBtn, barKey())
+    ioPianoBtn.classList.toggle('active', !ioPreview.classList.contains('hidden'))
+    for (const row of ioView.querySelectorAll('.io-item')) {
+        row.classList.toggle('selected', row.dataset.key === ioCurrentKey)
+        const btn = row.querySelector('.io-row-play')
+        if (btn) setPlayBtn(btn, row.dataset.key)
+    }
+}
+
+ioPlayPauseBtn.addEventListener('click', () => ioToggle(barKey()))
+ioStopBtn.addEventListener('click', ioStop)
+ioScoreBtn.addEventListener('click', async () => {
+    const item = ioItems.get(barKey())
+    if (item && typeof openScoreView === 'function') openScoreView(await ioEventsFor(item), { title: item.title })
+})
+ioPianoBtn.addEventListener('click', () => {
+    if (!ioPreview.classList.contains('hidden')) closeIOPreview()
+    else if (barKey()) openIOPreviewFor(barKey(), { scroll: true })
+})
+
+// ---- Piano-roll preview (sits under the bar, shows the selected item) ------
+let ioPreviewInstance = null
+let ioPreviewKey = null
+
+// Drag the playhead handle to jump playback elsewhere in the song.
+function seekIOPreview(t) {
+    if (ioPreviewKey) ioPlay(ioPreviewKey, { from: Math.round(t) })
+}
+
+// Also used directly by the UI tests with a raw event list.
+function openIOPianoRoll(events, { title, start, end, key, scroll = true } = {}) {
+    ioPreviewKey = key || null
     ioPreviewTitle.textContent = title ? `Piano roll — ${title}` : 'Piano roll'
     ioPreviewBody.innerHTML = ''
     ioPreviewInstance = createPianoRoll(ioPreviewBody, {
         keyboard: true,
         flipped: false,
-        onSeek: seekable ? seekIOPreview : undefined,
+        onSeek: key ? seekIOPreview : undefined,
     })
-    placeIOPreviewAfter(anchorEl)
     ioPreview.classList.remove('hidden')
+    updateIOButtons()
 
     const evs = events || []
     const s = start ?? (evs.length ? evs[0].timestamp : 0)
     const e = end ?? (evs.length ? evs[evs.length - 1].timestamp : s + 1000)
-    previewStart = s
-    previewEnd = e
-    // 'events' (recent imports): not in the DB, so seeking replays a
-    // client-side slice of these events. Anything else (sessions): the
-    // server slices its own DB range instead.
-    previewSeekMode = seekable === 'events' ? 'events' : 'session'
-    ioPreviewEvents = evs
-    stopPreviewPlayhead()
-    // Scroll the row that was clicked to the top, not the preview title, so
-    // the entry (with its play/stop button) stays visible above the panel.
-    ;(anchorEl || ioPreview).scrollIntoView({ behavior: 'smooth', block: 'start' })
-    requestAnimationFrame(() => ioPreviewInstance && ioPreviewInstance.setData(evs, s, e))
+    if (scroll) ioView.scrollTo({ top: 0, behavior: 'smooth' })
+    requestAnimationFrame(() => {
+        if (!ioPreviewInstance) return
+        ioPreviewInstance.setData(evs, s, e)
+        renderClock()
+    })
+}
+
+// scroll: bring the preview into view (when opened from the bar, not when it
+// just follows a selection made further down the list).
+async function openIOPreviewFor(key, { scroll = false } = {}) {
+    const item = ioItems.get(key)
+    if (!item) return
+    const evs = await ioEventsFor(item)
+    if (barKey() !== key) return   // bar moved on while loading
+    openIOPianoRoll(evs, { title: item.title, start: item.bounds.start, end: item.bounds.end, key, scroll })
 }
 
 function closeIOPreview() {
-    ioPreviewAnchorKey = null
-    stopPreviewPlayhead()
+    ioPreviewKey = null
     ioPreview.classList.add('hidden')
     ioPreviewBody.innerHTML = ''
     ioPreviewInstance = null
-}
-
-// Re-attach the preview after the row that opened it whenever a list
-// re-renders (innerHTML replacement would otherwise orphan it in place).
-function repositionIOPreview(container, prefix) {
-    if (ioPreview.classList.contains('hidden')) return
-    if (!ioPreviewAnchorKey || !ioPreviewAnchorKey.startsWith(prefix)) return
-    const id = ioPreviewAnchorKey.slice(prefix.length)
-    const row = container.querySelector(`[data-id="${id}"]`)
-    if (row) placeIOPreviewAfter(row)
+    updateIOButtons()
 }
 
 $('ioPreviewClose').addEventListener('click', closeIOPreview)
 window.addEventListener('resize', () => { if (ioPreviewInstance) ioPreviewInstance.resize() })
-
-// ---- Moving playhead + lit keys, driven by the playback stream -------------
-let previewStart = 0
-let previewEnd = 1
-let previewSeekMode = 'session'  // 'session' (DB range) or 'events' (client-side slice)
-let ioPreviewEvents = []         // full event list for the open preview, for 'events' mode
-let pbProgress = 0        // last progress (0..1) reported by the server
-let pbAt = 0              // performance.now() when pbProgress was set
-let pbRaf = null
-
-function startPreviewPlayhead() {
-    if (pbRaf != null) return
-    const tick = () => {
-        if (!ioPreviewInstance || ioPreview.classList.contains('hidden')) { pbRaf = null; return }
-        const span = Math.max(1, previewEnd - previewStart)
-        // Interpolate between server updates so the line glides (progress
-        // advances 1 over the whole span).
-        const est = Math.max(0, Math.min(1, pbProgress + (performance.now() - pbAt) / span))
-        ioPreviewInstance.setPlayhead(previewStart + est * (previewEnd - previewStart))
-        pbRaf = requestAnimationFrame(tick)
-    }
-    pbRaf = requestAnimationFrame(tick)
-}
-
-function stopPreviewPlayhead() {
-    if (pbRaf != null) cancelAnimationFrame(pbRaf)
-    pbRaf = null
-}
-
-onPlaybackEvent((data) => {
-    if (!ioPreviewInstance || ioPreview.classList.contains('hidden')) return
-    pbProgress = data.progress
-    pbAt = performance.now()
-    const ev = data.event
-    if (isNoteOn(ev)) ioPreviewInstance.highlight(ev.note, true)
-    else if (isNoteOff(ev)) ioPreviewInstance.highlight(ev.note, false)
-    startPreviewPlayhead()
-})
-
-onPlaybackStatus((status) => {
-    if (status === 'ended') {
-        stopPreviewPlayhead()
-        if (ioPreviewInstance) ioPreviewInstance.clearHighlights()
-    }
-})
 
 // ---- Shared helpers --------------------------------------------------------
 async function fetchEventsRange(start, end) {
@@ -189,182 +357,146 @@ async function playMidiBlob(data, name) {
     await fetch('/api/playback/file', { method: 'POST', body: fd })
 }
 
-// ---- Recent imports (IndexedDB) --------------------------------------------
-async function loadRecentImports() {
+function rowActions(key, download) {
+    return `
+        <div class="io-item-actions">
+            <button class="btn-icon io-row-play" title="Play">&#x25B6;</button>
+            ${download}
+            <button class="btn-icon io-row-delete" title="Delete">&#x1F5D1;</button>
+        </div>`
+}
+
+// Drop items whose rows were re-rendered away; clear the bar if it lost its item.
+function pruneIOItems(prefix, keep) {
+    for (const key of [...ioItems.keys()]) {
+        if (key.startsWith(prefix) && !keep.has(key)) {
+            ioItems.delete(key)
+            ioEventsCache.delete(key)
+        }
+    }
+    if (ioCurrentKey && !ioItems.has(ioCurrentKey)) ioCurrentKey = null
+    renderBar()
+}
+
+// ---- Imports (IndexedDB) ---------------------------------------------------
+// Called from app.js after a file is imported (with its id, to select it).
+async function loadRecentImports(selectId) {
     let imports = []
     try {
         imports = await listImports()
     } catch (err) {
         console.error('Failed to list imports:', err)
     }
-    if (!imports.length) {
-        ioRecentList.innerHTML = '<div class="history-empty">No imports yet. Select a file above.</div>'
-        return
+    const keep = new Set()
+    for (const f of imports) {
+        const key = `import:${f.id}`
+        keep.add(key)
+        ioItems.set(key, {
+            key, kind: 'import', id: f.id, rec: f, title: f.name, bounds: ioItems.get(key)?.bounds,
+            meta: `Imported ${new Date(f.importedAt).toLocaleString()} · ${(f.size / 1024).toFixed(1)} KB`,
+        })
     }
-    ioRecentList.innerHTML = imports.map(f => `
-        <div class="io-item" data-id="${f.id}">
+    pruneIOItems('import:', keep)
+    ioRecentList.innerHTML = imports.length ? imports.map(f => `
+        <div class="io-item" data-key="import:${f.id}">
             <div class="io-item-main">
                 <div class="title">${escapeHtml(f.name)}</div>
-                <div class="meta">${(f.size / 1024).toFixed(1)} KB &middot; ${new Date(f.importedAt).toLocaleString()}</div>
+                <div class="meta">${new Date(f.importedAt).toLocaleString()} &middot; ${(f.size / 1024).toFixed(1)} KB</div>
             </div>
-            <div class="io-item-actions">
-                <button class="btn-icon io-recent-play" title="Play">&#x25B6;</button>
-                <button class="btn-icon io-recent-piano" title="Piano roll">&#x1F3B9;</button>
-                <button class="btn-icon io-recent-score" title="Score">&#x1D11E;</button>
-                <button class="btn-icon io-recent-download" title="Download .mid">&#x2913; .mid</button>
-                <button class="btn-icon io-recent-delete" title="Delete">&#x1F5D1;</button>
-            </div>
+            ${rowActions(`import:${f.id}`, '<button class="btn-icon io-row-download" title="Download .mid">&#x2913; .mid</button>')}
         </div>
-    `).join('')
-    repositionIOPreview(ioRecentList, 'recent:')
-    updateIOPlayButtons()
+    `).join('') : '<div class="history-empty">No imports yet.</div>'
+
+    if (selectId != null) selectIOItem(`import:${selectId}`)
+    else if (!ioCurrentKey && imports.length) selectIOItem(`import:${imports[0].id}`)
+    updateIOButtons()
 }
-
-ioRecentList.addEventListener('click', async (e) => {
-    const row = e.target.closest('.io-item')
-    if (!row) return
-    const id = parseInt(row.dataset.id, 10)
-    const rec = await getImport(id)
-    if (!rec) return
-    const title = rec.name
-
-    if (e.target.closest('.io-recent-play')) {
-        const key = `recent:${id}`
-        if (ioPlayingKey === key) {
-            await fetch('/api/playback/stop', { method: 'POST' })
-            ioPlayingKey = null
-            updateIOPlayButtons()
-        } else {
-            await playMidiBlob(rec.data, rec.name)
-            ioPlayingKey = key
-            updateIOPlayButtons()
-            // Preview follows playback: if it's already open (for this import,
-            // a different import, or a session), switch it to what's now playing.
-            if (!ioPreview.classList.contains('hidden')) {
-                openIOPianoRoll(await parseMidiBlob(rec.data, rec.name), {
-                    title, anchorKey: key, anchorEl: row, forceOpen: true, seekable: 'events',
-                })
-            }
-        }
-    } else if (e.target.closest('.io-recent-piano')) {
-        openIOPianoRoll(await parseMidiBlob(rec.data, rec.name), { title, anchorKey: `recent:${id}`, anchorEl: row, seekable: 'events' })
-    } else if (e.target.closest('.io-recent-score')) {
-        if (typeof openScoreView === 'function') openScoreView(await parseMidiBlob(rec.data, rec.name), { title })
-    } else if (e.target.closest('.io-recent-download')) {
-        const url = URL.createObjectURL(new Blob([rec.data], { type: 'audio/midi' }))
-        const a = document.createElement('a')
-        a.href = url
-        a.download = rec.name.endsWith('.mid') ? rec.name : `${rec.name}.mid`
-        a.click()
-        setTimeout(() => URL.revokeObjectURL(url), 1000)
-    } else if (e.target.closest('.io-recent-delete')) {
-        await deleteImport(id)
-        loadRecentImports()
-    }
-})
 
 // ---- Sessions (export) -----------------------------------------------------
 async function loadIOSessions() {
-    loadRecentImports()
+    await loadRecentImports()
     try {
         const res = await fetch('/api/sessions')
         const sessions = await res.json()
-        if (!sessions.length) {
-            ioSessionList.innerHTML = '<div class="history-empty">No saved sessions yet. Save one from the Live or History tab.</div>'
-            return
+        const keep = new Set()
+        for (const s of sessions) {
+            const key = `session:${s.id}`
+            keep.add(key)
+            const performer = s.performer || 'Unknown'
+            ioItems.set(key, {
+                key, kind: 'session', id: s.id, start: s.start_time, end: s.end_time, bounds: ioItems.get(key)?.bounds,
+                title: s.song_name || 'Untitled',
+                meta: `${performer} · ${new Date(s.start_time).toLocaleString()} · ${fmtTime(s.end_time - s.start_time)}`,
+            })
         }
-        ioSessionList.innerHTML = sessions.map(s => `
-            <div class="io-item io-session" data-id="${s.id}" data-start="${s.start_time}" data-end="${s.end_time}">
+        pruneIOItems('session:', keep)
+        ioSessionList.innerHTML = sessions.length ? sessions.map(s => `
+            <div class="io-item io-session" data-key="session:${s.id}">
                 <div class="io-item-main">
                     <div class="title">${escapeHtml(s.song_name || 'Untitled')}</div>
-                    <div class="meta">${escapeHtml(s.performer || 'Unknown')} &middot; ${new Date(s.start_time).toLocaleString()}</div>
+                    <div class="meta">${escapeHtml(s.performer || 'Unknown')} &middot; ${new Date(s.start_time).toLocaleString()} &middot; ${fmtTime(s.end_time - s.start_time)}</div>
                 </div>
-                <div class="io-item-actions">
-                    <button class="btn-icon io-session-play" title="Play">&#x25B6;</button>
-                    <button class="btn-icon io-piano" title="Piano roll">&#x1F3B9;</button>
-                    <button class="btn-icon io-score" title="Score">&#x1D11E;</button>
-                    <a class="btn-icon io-export" title="Download as .mid" href="/api/sessions/${s.id}/export.mid" download>&#x2913; .mid</a>
-                </div>
+                ${rowActions(`session:${s.id}`, `<a class="btn-icon io-export" title="Download .mid" href="/api/sessions/${s.id}/export.mid" download>&#x2913; .mid</a>`)}
             </div>
-        `).join('')
-        repositionIOPreview(ioSessionList, 'session:')
-        updateIOPlayButtons()
+        `).join('') : '<div class="history-empty">No saved sessions yet. Save one from the Live or History tab.</div>'
+        if (!ioCurrentKey && sessions.length) selectIOItem(`session:${sessions[0].id}`)
+        updateIOButtons()
     } catch (err) {
         console.error('Failed to load sessions:', err)
         ioSessionList.innerHTML = '<div class="history-empty">Failed to load sessions.</div>'
     }
 }
 
-// ---- Play/stop across both lists (one playback active at a time, server-side) --
-// Key is `session:<id>` or `recent:<id>`, whichever last started playback, so
-// clicking Play in one list also flips any other row (in either list) that
-// was showing Stop back to Play.
-let ioPlayingKey = null
+// ---- Row clicks (both lists) -----------------------------------------------
+// Delete asks for a second click (the button turns into "Delete?") rather
+// than deleting on the first.
+let ioDeleteArmed = null
 
-function updateIOPlayButtons() {
-    ioSessionList.querySelectorAll('.io-item').forEach(row => {
-        const btn = row.querySelector('.io-session-play')
-        if (!btn) return
-        const playing = ioPlayingKey === `session:${row.dataset.id}`
-        btn.innerHTML = playing ? '&#x23F9;' : '&#x25B6;'
-        btn.title = playing ? 'Stop' : 'Play'
-        btn.classList.toggle('playing', playing)
-    })
-    ioRecentList.querySelectorAll('.io-item').forEach(row => {
-        const btn = row.querySelector('.io-recent-play')
-        if (!btn) return
-        const playing = ioPlayingKey === `recent:${row.dataset.id}`
-        btn.innerHTML = playing ? '&#x23F9;' : '&#x25B6;'
-        btn.title = playing ? 'Stop' : 'Play'
-        btn.classList.toggle('playing', playing)
-    })
-}
-
-onPlaybackStatus((status) => {
-    if (status === 'ended') {
-        ioPlayingKey = null
-        updateIOPlayButtons()
-    }
-})
-
-ioSessionList.addEventListener('click', async (e) => {
-    const row = e.target.closest('.io-session')
+ioView.addEventListener('click', async (e) => {
+    const row = e.target.closest('.io-item')
     if (!row) return
-    const id = parseInt(row.dataset.id, 10)
-    const start = parseInt(row.dataset.start, 10)
-    const end = parseInt(row.dataset.end, 10)
-    const title = row.querySelector('.title')?.textContent || 'Session'
+    const key = row.dataset.key
+    const item = ioItems.get(key)
+    if (!item) return
 
-    if (e.target.closest('.io-session-play')) {
-        const key = `session:${id}`
-        if (ioPlayingKey === key) {
-            await fetch('/api/playback/stop', { method: 'POST' })
-            ioPlayingKey = null
-            updateIOPlayButtons()
-        } else {
-            try {
-                await fetch('/api/playback/start', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ start, end, output: outputSelect.value || undefined }),
-                })
-                ioPlayingKey = key
-                updateIOPlayButtons()
-                // Preview follows playback: if it's already open (for this
-                // song or another), switch it to the song that's now playing.
-                if (!ioPreview.classList.contains('hidden')) {
-                    openIOPianoRoll(await fetchEventsRange(start, end), {
-                        start, end, title, anchorKey: key, anchorEl: row, forceOpen: true, seekable: true,
-                    })
-                }
-            } catch (err) {
-                console.error('Playback failed:', err)
-            }
-        }
-    } else if (e.target.closest('.io-piano')) {
-        openIOPianoRoll(await fetchEventsRange(start, end), { start, end, title, anchorKey: `session:${id}`, anchorEl: row, seekable: true })
-    } else if (e.target.closest('.io-score')) {
-        if (typeof openScoreView === 'function') openScoreView(await fetchEventsRange(start, end), { start, end, title })
+    const del = e.target.closest('.io-row-delete')
+    if (!del && ioDeleteArmed) {
+        ioDeleteArmed.classList.remove('armed')
+        ioDeleteArmed.innerHTML = '&#x1F5D1;'
+        ioDeleteArmed = null
     }
-    // The export link is an <a download>; let it handle itself.
+
+    if (e.target.closest('.io-row-play')) {
+        ioToggle(key)
+    } else if (e.target.closest('.io-row-download')) {
+        const url = URL.createObjectURL(new Blob([item.rec.data], { type: 'audio/midi' }))
+        const a = document.createElement('a')
+        a.href = url
+        a.download = item.rec.name.endsWith('.mid') ? item.rec.name : `${item.rec.name}.mid`
+        a.click()
+        setTimeout(() => URL.revokeObjectURL(url), 1000)
+    } else if (e.target.closest('.io-export')) {
+        // <a download>: let it handle itself.
+    } else if (del) {
+        if (ioDeleteArmed !== del) {
+            ioDeleteArmed = del
+            del.classList.add('armed')
+            del.textContent = 'Delete?'
+            return
+        }
+        ioDeleteArmed = null
+        if (ioPlayingKey === key) await ioStop()
+        if (item.kind === 'import') {
+            await deleteImport(item.id)
+            loadRecentImports()
+        } else {
+            await fetch(`/api/sessions/${item.id}`, { method: 'DELETE' })
+            loadIOSessions()
+            if (typeof loadSessions === 'function') loadSessions()
+        }
+    } else {
+        selectIOItem(key)
+    }
 })
+
+renderBar()

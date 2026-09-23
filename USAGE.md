@@ -113,9 +113,13 @@ Playback is exclusive — starting one stops the last.
 
 ## MIDI files
 
-**MIDI File → Select File → Play File** parses a standard `.mid` (format 0 or 1)
-and plays it to the connected output, tempo changes included. The file is played,
-not imported: nothing is added to the database.
+The **Import / Export** tab lists imported `.mid` files (format 0 or 1, kept in
+your browser, never in the server database) and recorded sessions. A bar pinned
+to the top of the tab holds **Import .mid** and the transport for the selected
+item: its name and date, play/pause, stop, elapsed / total time, piano roll and
+score. Click a row to select it. Each row also has its own play, download
+(`.mid`) and delete buttons; delete asks for a second click. Playback includes
+tempo changes; drag the piano roll's playhead to seek.
 
 ## TUI client
 

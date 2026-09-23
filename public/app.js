@@ -1533,12 +1533,6 @@ function handlePlaybackStatus(data) {
         btnStop.disabled = false
         $('timelineStop').disabled = false
         $('timelinePlaySelection').disabled = true
-    } else if (data.status === 'paused') {
-        btnPauseFile.dataset.paused = '1'
-        btnPauseFile.innerHTML = '&#x25B6; Resume'
-    } else if (data.status === 'resumed') {
-        btnPauseFile.dataset.paused = '0'
-        btnPauseFile.innerHTML = '&#x23F8; Pause'
     } else if (data.status === 'ended') {
         playbackActive = false
         stopPlaybackAnimation()
@@ -2308,28 +2302,30 @@ btnSelectFile.addEventListener('click', () => midiFileInput.click())
 midiFileInput.addEventListener('change', async (e) => {
     const file = e.target.files[0]
     if (!file) return
-    fileInfo.textContent = `${file.name} (${(file.size / 1024).toFixed(1)} KB) — importing…`
+    midiFileInput.value = ''  // so re-picking the same file fires change again
+    fileInfo.textContent = `Importing ${file.name}…`
 
-    // Remember the import in the browser (not on the server) and refresh the
-    // list, so the new file appears as a row to play / view.
-    try {
-        await saveImport(file)
-        if (typeof loadRecentImports === 'function') loadRecentImports()
-    } catch (err) {
-        console.error('Failed to store import:', err)
-    }
-
-    // Parse once for a friendly summary in the toolbar (does not store or play).
+    // Parse first so a broken file is reported instead of stored.
     try {
         const formData = new FormData()
         formData.append('file', file)
         const res = await fetch('/api/midi/file/parse', { method: 'POST', body: formData })
         const data = await res.json()
         if (data.error) throw new Error(data.error)
-        const notes = (data.events || []).filter(isNoteOn).length
-        fileInfo.textContent = `${data.fileName} — ${notes} notes, ${Math.round(data.durationMs / 1000)}s (added below)`
     } catch (err) {
-        fileInfo.textContent = `${file.name} — could not parse (${err.message})`
+        fileInfo.textContent = `Could not import ${file.name}: ${err.message}`
+        return
+    }
+
+    // Remember the import in the browser (not on the server), refresh the
+    // list and select it in the transport bar, ready to play.
+    try {
+        const id = await saveImport(file)
+        if (typeof loadRecentImports === 'function') await loadRecentImports(id)
+        fileInfo.textContent = ''
+    } catch (err) {
+        console.error('Failed to store import:', err)
+        fileInfo.textContent = `Could not save ${file.name}: ${err.message}`
     }
 })
 
