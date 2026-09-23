@@ -562,13 +562,23 @@ select {
 	background: linear-gradient(to bottom, #4caf50 0%, #2e7d32 100%);
 }
 
-/* Released but still sounding under the sustain pedal */
-.white-key.sustained {
-	background: linear-gradient(to bottom, #a5d6a7 0%, #81c784 100%);
+/* Released but still sounding under the sustain pedal: a green wash over
+   the key that fades to a faint tint, then holds until the pedal lifts.
+   Duration and floor come from SUSTAIN_FADE_MS / SUSTAIN_FADE_FLOOR in
+   piano-roll.js (the fallbacks here match them). */
+.white-key.sustained,
+.black-key.sustained {
+	animation: sustain-fade var(--sustain-fade-ms, 4000ms) ease-out forwards;
 }
 
-.black-key.sustained {
-	background: linear-gradient(to bottom, #4f7a52 0%, #2f5a33 100%);
+@keyframes sustain-fade {
+	from {
+		box-shadow: inset 0 0 0 200px rgba(76, 175, 80, 0.75);
+	}
+
+	to {
+		box-shadow: inset 0 0 0 200px rgba(76, 175, 80, calc(0.75 * var(--sustain-fade-floor, 0.15)));
+	}
 }
 
 /* Timeline / Piano Roll */
@@ -605,7 +615,7 @@ select {
 }
 
 /* Sustain pedal: lights while down (on screen or from MIDI in) */
-.btn-pedal {
+.timeline-controls .btn-pedal {
 	font: inherit;
 	font-size: 0.8rem;
 	font-style: italic;
@@ -621,14 +631,15 @@ select {
 	touch-action: none;
 }
 
-.btn-pedal.down {
+.timeline-controls .btn-pedal.down,
+.timeline-controls .btn-pedal.down:hover {
 	background: #2e5a33;
 	border-color: #4caf50;
 	color: #c8f5cb;
 }
 
 /* Latched by a click: stays down until clicked again */
-.btn-pedal.latched {
+.timeline-controls .btn-pedal.latched {
 	box-shadow: inset 0 0 0 2px #4caf50;
 }
 

@@ -30,10 +30,12 @@ Two things need attention on an existing install:
 ### Added
 
 - **Sustain pedal in the Live view.** A **Ped.** button beside ▶ Live lights
-  while the pedal is down (from the MIDI input or on screen). Hold it, or click
-  to latch it, to sustain the on-screen keys; it sends CC 64 to the output
-  (WebSocket message `{ type: "pedal", down }`). Keys released under the pedal
-  stay pale green until it lifts.
+  while the pedal is down (from the MIDI input or on screen). Hold it (or hold
+  **P**), or click to latch it, to sustain the on-screen keys; it sends CC 64 to
+  the output (WebSocket message `{ type: "pedal", down }`). Keys released under
+  the pedal stay green, fading over `SUSTAIN_FADE_MS` (piano-roll.js) to a
+  faint tint until it lifts, and the Live timeline draws pedal tails the same
+  way the Import/Export roll does.
 - **Import / Export tab** — export any recorded session to a Standard MIDI File
   (`GET /api/sessions/:id/export.mid`), import a `.mid` for preview/play without
   saving it on the server (`POST /api/midi/file/parse`; imports are kept in the

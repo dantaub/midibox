@@ -24,9 +24,11 @@ a note's bar is always under its key.
 
 **Ped.** (bottom left) is the sustain pedal. It lights whenever the pedal is
 down, whether on your MIDI keyboard or on screen. To use it with the on-screen
-keys, hold it (on a touch screen, hold it with one finger and play with the
-others), or click it once to latch it down and again to release. Keys you let go
-of while the pedal is down stay pale green until it lifts.
+keys, hold it or hold **P** (on a touch screen, hold it with one finger and
+play with the others), or click it once to latch it down and again to release.
+Keys you let go of while the pedal is down stay green, fading to a faint tint
+over a few seconds, until it lifts; on the timeline those notes get a fading
+tail that runs to the pedal lift (and keeps growing while you hold it).
 
 The timeline runs **downward** by default — time flows from top (earlier) to
 bottom (now) — with pitch left to right. `⇅` at the bottom right flips it.

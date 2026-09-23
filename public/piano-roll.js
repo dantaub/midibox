@@ -86,40 +86,57 @@ function pairNoteBars(events, endTime) {
 // down keeps sounding until the pedal comes up, or the same key is struck
 // again. Sets bar.held (>= bar.end) to when each bar actually stops sounding.
 const SUSTAIN_CC = 64
+
+// How pedal-held notes fade, on keys (CSS, via the variables set below) and
+// on the roll's tails: from full strength to SUSTAIN_FADE_FLOOR over
+// SUSTAIN_FADE_MS after the key is released, then holding there until the
+// pedal lifts - a rough stand-in for the note decaying.
+const SUSTAIN_FADE_MS = 4000
+const SUSTAIN_FADE_FLOOR = 0.15   // 0..1, how much is left once faded
+document.documentElement.style.setProperty('--sustain-fade-ms', `${SUSTAIN_FADE_MS}ms`)
+document.documentElement.style.setProperty('--sustain-fade-floor', String(SUSTAIN_FADE_FLOOR))
+
 function isSustainEvent(e) {
     return e.type === 'cc' && e.control === SUSTAIN_CC
 }
 
+// Runs every frame on the Live timeline, so: one pass for the pedal
+// intervals, a binary search per bar, and a per-note sort for re-strikes.
 function applySustain(bars, events, endTime) {
-    // Pedal-up times per channel; bars carry no channel, so pedal on any
-    // channel counts (files here are almost always single-channel piano).
+    // Pedal on any channel counts: bars carry no channel, and these are almost
+    // always single-channel piano. A pedal still down runs to endTime.
+    const downs = []
     const ups = []
-    let down = false
+    let downAt = null
     for (const e of events) {
         if (!isSustainEvent(e)) continue
-        const d = e.value >= 64
-        if (down && !d) ups.push(e.timestamp)
-        down = d
+        if (e.value >= 64) { if (downAt == null) downAt = e.timestamp }
+        else if (downAt != null) { downs.push(downAt); ups.push(e.timestamp); downAt = null }
     }
-    const pedalDownAt = (t) => {
-        let d = false
-        for (const e of events) {
-            if (e.timestamp > t) break
-            if (isSustainEvent(e)) d = e.value >= 64
+    if (downAt != null) { downs.push(downAt); ups.push(endTime) }
+
+    // Pedal-up of the interval covering t, or null if the pedal is up at t.
+    const upAfter = (t) => {
+        let lo = 0, hi = downs.length - 1, found = -1
+        while (lo <= hi) {
+            const mid = (lo + hi) >> 1
+            if (downs[mid] <= t) { found = mid; lo = mid + 1 } else hi = mid - 1
         }
-        return d
+        return found >= 0 && t < ups[found] ? ups[found] : null
     }
+
     const byNote = new Map()
     for (const bar of bars) {
+        bar.held = bar.end
         if (!byNote.has(bar.note)) byNote.set(bar.note, [])
         byNote.get(bar.note).push(bar)
     }
+    if (!downs.length) return
     for (const list of byNote.values()) {
         list.sort((a, b) => a.start - b.start)
         list.forEach((bar, i) => {
-            bar.held = bar.end
-            if (!pedalDownAt(bar.end)) return
-            const up = ups.find(t => t > bar.end) ?? endTime
+            const up = upAfter(bar.end)
+            if (up == null) return
             const restrike = list[i + 1] ? list[i + 1].start : Infinity
             bar.held = Math.max(bar.end, Math.min(up, restrike))
         })
@@ -154,14 +171,19 @@ function drawNoteBarsVertical(ctx, bars, width, timeToY) {
             const yA = timeToY(bar.start)
             const yB = timeToY(bar.end)
             const brightness = 50 + (bar.velocity / 127) * 50
-            ctx.fillStyle = isBlack ? `hsl(340, 80%, ${brightness}%)` : `hsl(160, 70%, ${brightness}%)`
+            const color = (a) => isBlack ? `hsla(340, 80%, ${brightness}%, ${a})` : `hsla(160, 70%, ${brightness}%, ${a})`
+            ctx.fillStyle = color(1)
             ctx.fillRect(spot.x, Math.min(yA, yB), spot.w - 1, Math.max(2, Math.abs(yB - yA)))
             if (bar.held > bar.end) {
+                // Pedal tail, fading like the sustained keys do (see SUSTAIN_FADE_MS)
                 const yC = timeToY(bar.held)
-                ctx.save()
-                ctx.globalAlpha = 0.25
+                const yF = timeToY(bar.end + SUSTAIN_FADE_MS)
+                const TAIL_ALPHA = 0.4
+                const grad = ctx.createLinearGradient(0, yB, 0, yF === yB ? yB + 1 : yF)
+                grad.addColorStop(0, color(TAIL_ALPHA))
+                grad.addColorStop(1, color(TAIL_ALPHA * SUSTAIN_FADE_FLOOR))
+                ctx.fillStyle = grad
                 ctx.fillRect(spot.x + 1, Math.min(yB, yC), Math.max(1, spot.w - 3), Math.abs(yC - yB))
-                ctx.restore()
             }
         }
     }

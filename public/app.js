@@ -104,6 +104,22 @@ function pedalRelease() {
 btnPedal.addEventListener('pointerup', pedalRelease)
 btnPedal.addEventListener('pointercancel', pedalRelease)
 
+// Hold P for the pedal (a latched pedal stays down after P is let go).
+function pedalKeyEvent(e) {
+    return (e.key === 'p' || e.key === 'P') && !e.ctrlKey && !e.metaKey && !e.altKey &&
+        e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA' && e.target.tagName !== 'SELECT'
+}
+document.addEventListener('keydown', (e) => {
+    if (!pedalKeyEvent(e)) return
+    e.preventDefault()
+    if (!e.repeat) setOnScreenPedal(true)
+})
+document.addEventListener('keyup', (e) => {
+    if (pedalKeyEvent(e)) setOnScreenPedal(pedalLatched)
+})
+// Letting go of P in another window never sends keyup here.
+window.addEventListener('blur', () => { if (!pedalLatched) setOnScreenPedal(false) })
+
 // Mouse handlers
 piano.addEventListener('mousedown', (e) => {
     const key = e.target.closest('.white-key, .black-key')
@@ -646,6 +662,9 @@ function drawTimeline() {
     // Note bars: pair on/off, optionally align chords (display-only), then draw.
     // The pairing/align/draw live in piano-roll.js, shared with the popup.
     const noteBars = pairNoteBars(timeline.events, viewEnd)
+    // Pedal tails, as on the Import/Export roll. Live, a pedal still down
+    // runs to the end of the view (now), so the tails grow as you play.
+    applySustain(noteBars, timeline.events, viewEnd)
     if (timeline.alignChords) {
         alignChordBars(noteBars, timeline.alignGapMs, timeline.alignMaxSpanMs)
     }
