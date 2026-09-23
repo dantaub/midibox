@@ -1782,6 +1782,16 @@ main,
 	cursor: default;
 }
 
+/* The Live timeline swallows wheel and touch gestures (it pans and zooms on
+   them). This preview doesn't, so let them scroll the page instead; a touch
+   that starts on the red playhead line is still claimed for scrubbing (see
+   createPianoRoll's touchstart handler). */
+.io-preview-body .timeline-container,
+.io-preview-body .timeline-canvas {
+	overscroll-behavior: auto;
+	touch-action: pan-y;
+}
+
 /* ...except the canvas itself, which needs pointer events for the
    draggable playhead handle (the parent's pointer-events: none above
    otherwise blocks it). */

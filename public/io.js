@@ -143,8 +143,10 @@ onPlaybackStatus((status) => {
         clk.progress = (clkPos() - clk.segStart) / span
         clk.at = performance.now()
         ioPaused = true
-        stopClock()
+        // Unlight keys first: clearHighlights also drops the playhead, and
+        // stopClock's final render puts it back where playback paused.
         if (ioPreviewInstance) ioPreviewInstance.clearHighlights()
+        stopClock()
     } else if (status === 'resumed') {
         clk.at = performance.now()
         ioPaused = false

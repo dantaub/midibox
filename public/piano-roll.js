@@ -262,6 +262,16 @@ function createPianoRoll(container, opts = {}) {
         canvas.style.cursor = 'ns-resize'
     })
 
+    // Where the page may scroll on touch (touch-action: pan-y), a drag that
+    // starts on the playhead would be taken as a scroll and cancelled; claim
+    // those touches so scrubbing still works. Touches elsewhere scroll as usual.
+    canvas.addEventListener('touchstart', (e) => {
+        const t = e.touches[0]
+        if (e.touches.length !== 1 || !t) return
+        const { x, y } = pointerPos(t)
+        if (nearHandle(x, y)) e.preventDefault()
+    }, { passive: false })
+
     canvas.addEventListener('pointermove', (e) => {
         if (!dragging) {
             // Hover feedback so the handle reads as draggable before the
