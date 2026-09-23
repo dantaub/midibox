@@ -562,6 +562,15 @@ select {
 	background: linear-gradient(to bottom, #4caf50 0%, #2e7d32 100%);
 }
 
+/* Released but still sounding under the sustain pedal */
+.white-key.sustained {
+	background: linear-gradient(to bottom, #a5d6a7 0%, #81c784 100%);
+}
+
+.black-key.sustained {
+	background: linear-gradient(to bottom, #4f7a52 0%, #2f5a33 100%);
+}
+
 /* Timeline / Piano Roll */
 .timeline-card {
 	flex: 1;

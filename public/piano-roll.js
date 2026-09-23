@@ -82,6 +82,50 @@ function pairNoteBars(events, endTime) {
     return bars
 }
 
+// Sustain pedal (CC 64, down at >= 64): a note released while the pedal is
+// down keeps sounding until the pedal comes up, or the same key is struck
+// again. Sets bar.held (>= bar.end) to when each bar actually stops sounding.
+const SUSTAIN_CC = 64
+function isSustainEvent(e) {
+    return e.type === 'cc' && e.control === SUSTAIN_CC
+}
+
+function applySustain(bars, events, endTime) {
+    // Pedal-up times per channel; bars carry no channel, so pedal on any
+    // channel counts (files here are almost always single-channel piano).
+    const ups = []
+    let down = false
+    for (const e of events) {
+        if (!isSustainEvent(e)) continue
+        const d = e.value >= 64
+        if (down && !d) ups.push(e.timestamp)
+        down = d
+    }
+    const pedalDownAt = (t) => {
+        let d = false
+        for (const e of events) {
+            if (e.timestamp > t) break
+            if (isSustainEvent(e)) d = e.value >= 64
+        }
+        return d
+    }
+    const byNote = new Map()
+    for (const bar of bars) {
+        if (!byNote.has(bar.note)) byNote.set(bar.note, [])
+        byNote.get(bar.note).push(bar)
+    }
+    for (const list of byNote.values()) {
+        list.sort((a, b) => a.start - b.start)
+        list.forEach((bar, i) => {
+            bar.held = bar.end
+            if (!pedalDownAt(bar.end)) return
+            const up = ups.find(t => t > bar.end) ?? endTime
+            const restrike = list[i + 1] ? list[i + 1].start : Infinity
+            bar.held = Math.max(bar.end, Math.min(up, restrike))
+        })
+    }
+}
+
 // Render-only chord alignment: translate each bar (in place) so a chord's onsets
 // share a start time. Chain notes while consecutive onsets are within gapMs (a
 // chord arrives at a steady serial rate) and the cluster stays under maxSpanMs.
@@ -100,6 +144,7 @@ function alignChordBars(bars, gapMs, maxSpanMs) {
 
 // Draw bars on a vertical time axis (pitch across x via noteToX, time down y via
 // the supplied map). White keys first so the narrower black-key bars stay on top.
+// A bar with .held past its end (see applySustain) gets a faint pedal tail.
 function drawNoteBarsVertical(ctx, bars, width, timeToY) {
     for (const pass of [false, true]) {
         for (const bar of bars) {
@@ -111,6 +156,13 @@ function drawNoteBarsVertical(ctx, bars, width, timeToY) {
             const brightness = 50 + (bar.velocity / 127) * 50
             ctx.fillStyle = isBlack ? `hsl(340, 80%, ${brightness}%)` : `hsl(160, 70%, ${brightness}%)`
             ctx.fillRect(spot.x, Math.min(yA, yB), spot.w - 1, Math.max(2, Math.abs(yB - yA)))
+            if (bar.held > bar.end) {
+                const yC = timeToY(bar.held)
+                ctx.save()
+                ctx.globalAlpha = 0.25
+                ctx.fillRect(spot.x + 1, Math.min(yB, yC), Math.max(1, spot.w - 3), Math.abs(yC - yB))
+                ctx.restore()
+            }
         }
     }
 }
@@ -147,6 +199,7 @@ function createPianoRoll(container, opts = {}) {
     const ctx = canvas.getContext('2d')
 
     let events = []
+    let bars = null       // derived from events on first render after setData
     let start = 0
     let end = 1
     let playhead = null   // ms position of the playback line, or null
@@ -187,8 +240,12 @@ function createPianoRoll(container, opts = {}) {
             ctx.stroke()
         }
 
-        const bars = pairNoteBars(events, end)
-        if (opts.align) alignChordBars(bars, opts.alignGapMs ?? 12, opts.alignMaxSpanMs ?? 60)
+        // Bars only change with the data; render runs every playback frame.
+        if (!bars) {
+            bars = pairNoteBars(events, end)
+            if (opts.sustain) applySustain(bars, events, end)
+            if (opts.align) alignChordBars(bars, opts.alignGapMs ?? 12, opts.alignMaxSpanMs ?? 60)
+        }
         drawNoteBarsVertical(ctx, bars, width, timeToY)
 
         // Playback line + head, like the Live view
@@ -304,8 +361,34 @@ function createPianoRoll(container, opts = {}) {
         if (key) key.classList.toggle('playback', on)
     }
 
+    // Light keys from a playback stream, pedal included: a key released while
+    // the sustain pedal is down stays dimly lit ('sustained') until the pedal
+    // comes up or it's struck again, matching what's still sounding.
+    let pedalDown = false
+    const sustained = new Set()
+    function setSustained(note, on) {
+        const key = keys[note]
+        if (key) key.classList.toggle('sustained', on)
+        if (on) sustained.add(note)
+        else sustained.delete(note)
+    }
+    function playbackEvent(ev) {
+        if (isNoteOn(ev)) {
+            setSustained(ev.note, false)
+            highlight(ev.note, true)
+        } else if (isNoteOff(ev)) {
+            highlight(ev.note, false)
+            if (pedalDown) setSustained(ev.note, true)
+        } else if (isSustainEvent(ev)) {
+            pedalDown = ev.value >= 64
+            if (!pedalDown) for (const note of [...sustained]) setSustained(note, false)
+        }
+    }
+
     function clearHighlights() {
-        for (const note in keys) keys[note].classList.remove('playback')
+        for (const note in keys) keys[note].classList.remove('playback', 'sustained')
+        sustained.clear()
+        pedalDown = false
         playhead = null
         render()
     }
@@ -325,10 +408,11 @@ function createPianoRoll(container, opts = {}) {
 
     function setData(evts, startMs, endMs) {
         events = evts || []
+        bars = null
         start = startMs
         end = endMs
         resize()
     }
 
-    return { render, resize, setData, setPlayhead, highlight, clearHighlights, canvas, piano, keys, element: wrap }
+    return { render, resize, setData, setPlayhead, highlight, playbackEvent, clearHighlights, canvas, piano, keys, element: wrap }
 }

@@ -128,9 +128,7 @@ onPlaybackEvent((data) => {
     clk.progress = data.progress
     clk.at = performance.now()
     if (ioPreviewInstance && ioPreviewKey === ioPlayingKey) {
-        const ev = data.event
-        if (isNoteOn(ev)) ioPreviewInstance.highlight(ev.note, true)
-        else if (isNoteOff(ev)) ioPreviewInstance.highlight(ev.note, false)
+        ioPreviewInstance.playbackEvent(data.event)
     }
     startClock()
 })
@@ -176,6 +174,9 @@ async function ioPlay(key, { from } = {}) {
         const evs = await ioEventsFor(item)
         const song = item.bounds
         const at = from ?? song.start
+        // Clear before starting: the first streamed events (e.g. a seek's
+        // leading pedal state) can arrive before the request resolves.
+        if (ioPreviewInstance) ioPreviewInstance.clearHighlights()
         if (item.kind === 'import' && from == null) {
             await playMidiBlob(item.rec.data, item.rec.name)
         } else {
@@ -183,7 +184,7 @@ async function ioPlay(key, { from } = {}) {
             // itself. An import has no DB rows, so a seek sends the client-side
             // slice of its parsed events instead.
             const payload = item.kind === 'import'
-                ? { events: evs.filter(e => e.timestamp >= at), output: outputSelect.value || undefined }
+                ? { events: importSlice(evs, at), output: outputSelect.value || undefined }
                 : { start: Math.round(at), end: item.end, output: outputSelect.value || undefined }
             await fetch('/api/playback/start', {
                 method: 'POST',
@@ -195,12 +196,23 @@ async function ioPlay(key, { from } = {}) {
         ioCurrentKey = key
         ioPaused = false
         Object.assign(clk, { segStart: at, segEnd: song.end, progress: 0, at: performance.now() })
-        if (ioPreviewInstance) ioPreviewInstance.clearHighlights()
         renderBar()
         startClock()
     } catch (err) {
         console.error('Playback failed:', err)
     }
+}
+
+// Events from `at` on, led by the sustain pedal's state at `at` so a seek into
+// a pedalled passage still sounds (and lights keys) pedalled.
+function importSlice(evs, at) {
+    let pedal = null
+    for (const e of evs) {
+        if (e.timestamp >= at) break
+        if (isSustainEvent(e)) pedal = e
+    }
+    const rest = evs.filter(e => e.timestamp >= at)
+    return pedal ? [{ ...pedal, timestamp: at }, ...rest] : rest
 }
 
 async function ioStop() {
@@ -304,6 +316,7 @@ function openIOPianoRoll(events, { title, start, end, key, scroll = true } = {})
         keyboard: true,
         flipped: false,
         onSeek: key ? seekIOPreview : undefined,
+        sustain: true,
     })
     ioPreview.classList.remove('hidden')
     updateIOButtons()

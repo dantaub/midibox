@@ -36,7 +36,9 @@ Two things need attention on an existing install:
   vertical timeline. A sticky transport bar holds **Import .mid** plus
   play/pause, stop, elapsed / total time, piano roll and score for the playing
   (or selected) item, so they stay in view while the lists scroll; rows carry
-  play, download and delete (click twice to confirm). The Live view, History
+  play, download and delete (click twice to confirm). The piano roll shows the
+  sustain pedal: notes it holds get a faint tail and their keys stay pale green
+  until the pedal lifts, so the roll matches what's still sounding. The Live view, History
   preview and this tab share one `piano-roll.js` component (geometry, note
   pairing, chord-align, rendering).
 - **Score view** — render a session or imported `.mid` as staff notation in a
