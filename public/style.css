@@ -1501,27 +1501,45 @@ main,
    Import / Export tab
    =========================================== */
 .io-view {
+	--io-col: 780px;
 	display: flex;
 	flex-direction: column;
+	align-items: center;
 	gap: 1rem;
 	padding: 0 1rem 1rem;
-	max-width: 780px;
-	margin: 0 auto;
 	width: 100%;
 	/* The pane is a fixed-height flex child; let its content scroll */
 	overflow-y: auto;
 	min-height: 0;
 }
 
-/* Transport bar: sticks under the header while the IO tab scrolls.
-   Negative margins bleed it to the edges of the padded, centered io-view. */
+/* The pane spans the window so the score can go wide; everything else keeps
+   to a centered reading column. */
+.io-view > * {
+	width: 100%;
+	max-width: var(--io-col);
+}
+
+.io-view > #ioScorePanel {
+	max-width: 1400px;
+}
+
+/* Transport bar: sticks under the header while the IO tab scrolls. Spans the
+   pane edge to edge (negative margins undo its padding), with its contents
+   padded in to line up with the reading column. */
+.io-view > .io-toolbar {
+	align-self: stretch;
+	width: auto;
+	max-width: none;
+	margin: 0 -1rem;
+	padding: 0.6rem max(1rem, calc((100% - var(--io-col)) / 2 + 1rem)) calc(0.6rem + 3px);
+}
+
 .io-toolbar {
 	position: sticky;
 	top: 0;
 	z-index: 50;
 	background: #16213e;
-	margin: 0 -1rem;
-	padding: 0.6rem 1rem 0;
 	border-bottom: 1px solid #26264a;
 	display: flex;
 	flex-direction: column;
@@ -1578,8 +1596,11 @@ main,
 
 /* Thin progress line along the bottom edge of the bar */
 .io-progress {
+	position: absolute;
+	left: 0;
+	right: 0;
+	bottom: 0;
 	height: 3px;
-	margin: 0 -1rem;
 	background: #26264a;
 }
 
@@ -1592,7 +1613,6 @@ main,
 .io-toolbar .file-info {
 	color: #ff8a8a;
 	font-size: 0.8rem;
-	padding-bottom: 0.4rem;
 }
 
 .io-toolbar .file-info:empty {
@@ -1884,6 +1904,7 @@ main,
 
 .score-container svg {
 	display: block;
+	margin: 0 auto;
 }
 
 .score-note {

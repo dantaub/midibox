@@ -264,15 +264,20 @@ function renderScore() {
     const measures = scoreChordsToMeasures(chords, time.beats)
     const capped = measures.length >= SCORE_MAX_MEASURES
 
-    // Layout geometry: fit as many measures per row as the container allows.
-    const MEASURE_W = 260
+    // Layout geometry: fit as many measures per row as the container allows,
+    // then stretch them to fill the row so wide screens don't leave a gap on
+    // the right. A score shorter than one row keeps its natural width and the
+    // SVG is centered (see .score-container svg).
+    const MIN_MEASURE_W = 260
     const FIRST_EXTRA = 60           // first measure of a row carries clef/brace/keysig
     const ROW_H = 220
-    const PAD_X = 10
+    const PAD_X = 24                 // each side; the brace draws left of the stave
     const PAD_TOP = 10
-    const width = Math.max(360, scoreContainer.clientWidth - PAD_X * 2)
-    const perRow = Math.max(1, Math.floor((width - FIRST_EXTRA) / MEASURE_W))
+    const avail = Math.max(260, scoreContainer.clientWidth - PAD_X * 2)
+    const perRow = Math.max(1, Math.min(measures.length, Math.floor((avail - FIRST_EXTRA) / MIN_MEASURE_W)))
     const rows = Math.ceil(measures.length / perRow)
+    const MEASURE_W = rows > 1 ? (avail - FIRST_EXTRA) / perRow : MIN_MEASURE_W
+    const width = FIRST_EXTRA + perRow * MEASURE_W
 
     const renderer = new VF.Renderer(scoreContainer, VF.Renderer.Backends.SVG)
     renderer.resize(width + PAD_X * 2, rows * ROW_H + PAD_TOP + 20)
