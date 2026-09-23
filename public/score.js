@@ -112,6 +112,28 @@ function scoreBarsToChords(bars) {
     })
 }
 
+// Sustain pedal (CC 64) down-intervals [{ down, up }] from the events. A
+// pedal still down at the end runs to endTime.
+function scorePedalIntervals(events, endTime) {
+    const out = []
+    let downAt = null
+    for (const e of events) {
+        if (e.type !== 'cc' || e.control !== 64) continue
+        if (e.value >= 64 && downAt == null) downAt = e.timestamp
+        else if (e.value < 64 && downAt != null) { out.push({ down: downAt, up: e.timestamp }); downAt = null }
+    }
+    if (downAt != null) out.push({ down: downAt, up: endTime })
+    return out
+}
+
+// Which pedal interval (index) a chord sits under, or -1. Judged at the
+// chord's midpoint: legato pedalling lifts just after a new chord and presses
+// again right after, so its onset alone would land in the gap.
+function scorePedalFor(chord, pedals) {
+    const t = (chord.start + chord.until) / 2
+    return pedals.findIndex(p => t >= p.down && t < p.up)
+}
+
 // Pack chords into measures of the given length (quarter beats). A chord that
 // would overflow starts a new measure (durations are not split across bar lines
 // - a v1 simplification, which is why voices render non-strict below).
@@ -249,6 +271,7 @@ function renderScore() {
     }
 
     const events = scoreFilterByChannel(scoreEvents, scoreOpts.channel)
+    const pedals = scorePedalIntervals(events, events.length ? events[events.length - 1].timestamp : 0)
 
     const endTime = events.length ? events[events.length - 1].timestamp : 0
     const bars = pairNoteBars(events, endTime)
@@ -322,6 +345,44 @@ function renderScore() {
         new VF.Formatter().joinVoices([tVoice]).joinVoices([bVoice]).format([tVoice, bVoice], w - 30)
         tVoice.draw(ctx, treble)
         bVoice.draw(ctx, bass)
+
+        // Pedal brackets under the bass staff: one per run of consecutive
+        // chords under the same pedal press, closing on the chord where the
+        // pedal lifts (so a re-pedal shows as the usual notch). Runs break at
+        // bar lines and pick up on the next measure's first chord. A run of
+        // one chord at the end of a measure has no note to close on, so it
+        // runs open to the bar line.
+        const runs = []
+        let run = null
+        measure.forEach((chord, ci) => {
+            const p = scorePedalFor(chord, pedals)
+            if (run && p === run.p) { run.last = ci; return }
+            if (run) runs.push(run)
+            run = p >= 0 ? { p, first: ci, last: ci } : null
+        })
+        if (run) runs.push(run)
+        const pedalNotes = []
+        for (const r of runs) {
+            const end = r.last + 1 < measure.length ? r.last + 1 : r.last
+            if (end > r.first) {
+                pedalNotes.push(bassNotes[r.first], bassNotes[end])
+            } else {
+                // Open bracket to the bar line (same geometry as VexFlow's
+                // BRACKET style: bottom-text line 3, 10px uprights).
+                const x = bassNotes[r.first].getAbsoluteX()
+                const y = bass.getYForBottomText(3)
+                ctx.beginPath()
+                ctx.moveTo(x, y - 10)
+                ctx.lineTo(x, y)
+                ctx.lineTo(bass.getX() + bass.getWidth() - 4, y)
+                ctx.stroke()
+            }
+        }
+        if (pedalNotes.length) {
+            const mark = new VF.PedalMarking(pedalNotes)
+            mark.setType(VF.PedalMarking.type.BRACKET)
+            mark.setContext(ctx).draw()
+        }
 
         // Tag each drawn chord (now its StaveNotes have SVG groups) with its
         // note groups and real-time window, for the playback highlight. Skip

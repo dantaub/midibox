@@ -604,6 +604,34 @@ select {
 	flex: 0 0 auto;
 }
 
+/* Sustain pedal: lights while down (on screen or from MIDI in) */
+.btn-pedal {
+	font: inherit;
+	font-size: 0.8rem;
+	font-style: italic;
+	font-weight: 600;
+	padding: 0.25rem 0.6rem;
+	border-radius: 4px;
+	border: 1px solid #2e2e52;
+	background: #1c1c34;
+	color: #b0b0c0;
+	cursor: pointer;
+	user-select: none;
+	-webkit-user-select: none;
+	touch-action: none;
+}
+
+.btn-pedal.down {
+	background: #2e5a33;
+	border-color: #4caf50;
+	color: #c8f5cb;
+}
+
+/* Latched by a click: stays down until clicked again */
+.btn-pedal.latched {
+	box-shadow: inset 0 0 0 2px #4caf50;
+}
+
 .timeline-controls-right {
 	justify-content: flex-end;
 }

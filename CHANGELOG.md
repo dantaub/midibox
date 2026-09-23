@@ -29,6 +29,11 @@ Two things need attention on an existing install:
 
 ### Added
 
+- **Sustain pedal in the Live view.** A **Ped.** button beside ▶ Live lights
+  while the pedal is down (from the MIDI input or on screen). Hold it, or click
+  to latch it, to sustain the on-screen keys; it sends CC 64 to the output
+  (WebSocket message `{ type: "pedal", down }`). Keys released under the pedal
+  stay pale green until it lifts.
 - **Import / Export tab** — export any recorded session to a Standard MIDI File
   (`GET /api/sessions/:id/export.mid`), import a `.mid` for preview/play without
   saving it on the server (`POST /api/midi/file/parse`; imports are kept in the
@@ -46,7 +51,8 @@ Two things need attention on an existing install:
   events are grouped into chords by onset, quantized, and laid out as 4/4
   grand-staff measures. Timing is approximate: quantized, with 4/4 and 120 BPM
   assumed and pitches spelled with sharps (no key signature); output is capped
-  at 64 measures. The playing chord lights up and scrolls into view, and
+  at 64 measures. Sustain pedal shows as brackets under the bass staff (with
+  a notch at each re-pedal). The playing chord lights up and scrolls into view, and
   stays in step after a seek.
 - **Pluggable MIDI transports** — device I/O now sits behind a transport
   interface selected by an address scheme. Linux defaults to the ALSA sequencer

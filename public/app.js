@@ -47,6 +47,63 @@ function sendNoteOff(note) {
     }
 }
 
+// ===========================================
+// Sustain pedal (CC 64)
+//
+// Two sources: the MIDI input's pedal, and the on-screen Ped. button (which
+// sends CC 64 to the output, like the on-screen keys send notes). Either one
+// down lights the button, and keys released meanwhile stay pale green
+// ('sustained') until both are up - what the synth is still sounding.
+// ===========================================
+const btnPedal = $('btnPedal')
+let pedalFromMidi = false
+let pedalOnScreen = false
+let pedalLatched = false
+const sustainedNotes = new Set()
+
+function pedalIsDown() {
+    return pedalFromMidi || pedalOnScreen
+}
+
+function renderPedal() {
+    btnPedal.classList.toggle('down', pedalIsDown())
+    btnPedal.classList.toggle('latched', pedalLatched)
+    if (!pedalIsDown()) {
+        sustainedNotes.forEach(note => keys[note] && keys[note].classList.remove('sustained'))
+        sustainedNotes.clear()
+    }
+}
+
+function setOnScreenPedal(down) {
+    if (down === pedalOnScreen) return
+    pedalOnScreen = down
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'pedal', down }))
+    renderPedal()
+}
+
+// Hold = momentary; a quick click toggles a latch (for a mouse, which can't
+// hold the pedal and play a key at once). On touch, hold it with one finger
+// and play with the others.
+const PEDAL_TAP_MS = 250
+let pedalPressAt = 0
+btnPedal.addEventListener('pointerdown', (e) => {
+    e.preventDefault()
+    btnPedal.setPointerCapture(e.pointerId)
+    pedalPressAt = performance.now()
+    setOnScreenPedal(true)
+})
+function pedalRelease() {
+    if (!pedalPressAt) return
+    const tap = performance.now() - pedalPressAt < PEDAL_TAP_MS
+    pedalPressAt = 0
+    if (tap) pedalLatched = !pedalLatched
+    else pedalLatched = false
+    setOnScreenPedal(pedalLatched)
+    renderPedal()
+}
+btnPedal.addEventListener('pointerup', pedalRelease)
+btnPedal.addEventListener('pointercancel', pedalRelease)
+
 // Mouse handlers
 piano.addEventListener('mousedown', (e) => {
     const key = e.target.closest('.white-key, .black-key')
@@ -113,6 +170,11 @@ function activateNote(note, isPlayback = false) {
     const cls = isPlayback ? 'playback' : 'active'
     keys[note].classList.add(cls)
     if (isPlayback) playbackNotes.add(note)
+    else {
+        // Struck again: it's held by the key now, not the pedal
+        keys[note].classList.remove('sustained')
+        sustainedNotes.delete(note)
+    }
 }
 
 function deactivateNote(note, isPlayback = false) {
@@ -120,6 +182,10 @@ function deactivateNote(note, isPlayback = false) {
     const cls = isPlayback ? 'playback' : 'active'
     keys[note].classList.remove(cls)
     if (isPlayback) playbackNotes.delete(note)
+    else if (pedalIsDown()) {
+        keys[note].classList.add('sustained')
+        sustainedNotes.add(note)
+    }
 }
 
 function clearPlaybackNotes() {
@@ -1465,6 +1531,10 @@ function onPlaybackStatus(fn) {
 function handleMidiEvent(event) {
     if (isNoteOn(event)) activateNote(event.note, false)
     else if (isNoteOff(event)) deactivateNote(event.note, false)
+    else if (event.type === 'cc' && event.control === 64) {
+        pedalFromMidi = event.value >= 64
+        renderPedal()
+    }
     addLogEntry(event)
     addEventToTimeline(event)
     for (const fn of liveEventHooks) {

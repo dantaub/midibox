@@ -97,6 +97,9 @@ const server = serveOrExplain({
           } else {
             sendMidiMessage([0x80 | channel, note, 0]);
           }
+        } else if (data.type === "pedal") {
+          // On-screen sustain pedal (CC 64), alongside the on-screen keys
+          sendMidiMessage([0xb0, 64, data.down ? 127 : 0]);
         }
       } catch (e) {
         // Ignore invalid messages
