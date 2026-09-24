@@ -132,6 +132,55 @@ describe("websocket", () => {
   });
 });
 
+describe("playback", () => {
+  // Collects playback status messages from the WebSocket
+  async function watchPlayback() {
+    const ws = new WebSocket(`ws://localhost:${PORT}/ws`);
+    const statuses: string[] = [];
+    ws.onmessage = (e) => {
+      const msg = JSON.parse(String(e.data));
+      if (msg.type === "playback") statuses.push(msg.status);
+    };
+    await new Promise((resolve, reject) => {
+      ws.onopen = resolve;
+      ws.onerror = () => reject(new Error("socket error"));
+    });
+    const waitFor = async (status: string) => {
+      for (let i = 0; i < 50 && !statuses.includes(status); i++) await Bun.sleep(50);
+      return statuses.includes(status);
+    };
+    return { ws, statuses, waitFor };
+  }
+
+  const longEvents: MidiEvent[] = [
+    { timestamp: DAY, channel: 0, type: "noteon", note: 60, velocity: 90 },
+    { timestamp: DAY + 30_000, channel: 0, type: "noteoff", note: 60, velocity: 0 },
+  ];
+
+  test("stop announces the end, so clients leave the playing state", async () => {
+    const { ws, waitFor } = await watchPlayback();
+    await post("/api/playback/start", { events: longEvents });
+    expect(await waitFor("started")).toBe(true);
+
+    await post("/api/playback/stop", {});
+    expect(await waitFor("ended")).toBe(true);
+    ws.close();
+  });
+
+  test("starting over a playback doesn't announce the old one's end", async () => {
+    const { ws, statuses, waitFor } = await watchPlayback();
+    await post("/api/playback/start", { events: longEvents });
+    expect(await waitFor("started")).toBe(true);
+    await post("/api/playback/start", { events: longEvents });
+    await Bun.sleep(300);
+    expect(statuses).toEqual(["started", "started"]);
+
+    await post("/api/playback/stop", {});
+    expect(await waitFor("ended")).toBe(true);
+    ws.close();
+  });
+});
+
 describe("midi file parse (import preview)", () => {
   test("parses an uploaded .mid into note events", async () => {
     const bytes = writeMidiFile([

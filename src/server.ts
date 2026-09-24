@@ -553,6 +553,13 @@ function broadcastPlaybackStart(
   for (const ws of clients) ws.send(msg);
 }
 
+// True when another playback has started since `mine` did. A plain stop
+// clears the controller to null rather than replacing it, and that playback
+// still has to announce "ended" or clients never leave the playing state.
+function supersededBy(mine: AbortController): boolean {
+  return playbackAbortController !== null && playbackAbortController !== mine;
+}
+
 function broadcastPlaybackEnd(clients: Set<ServerWebSocket<unknown>>): void {
   const msg = JSON.stringify({ type: "playback", status: "ended" });
   for (const ws of clients) ws.send(msg);
@@ -597,7 +604,7 @@ async function playbackEvents(events: MidiEvent[], clients: Set<ServerWebSocket<
   // Only the call that's still current gets to clear playbackActive and
   // announce "ended" - otherwise we'd clobber the state of the playback
   // that superseded us and the client would see a spurious stop.
-  if (playbackAbortController === myController) {
+  if (!supersededBy(myController)) {
     playbackActive = false;
     broadcastPlaybackEnd(clients);
   }
@@ -661,7 +668,7 @@ async function playbackMidiFile(events: MidiFileEvent[], clients: Set<ServerWebS
     clients
   );
 
-  if (playbackAbortController === myController) {
+  if (!supersededBy(myController)) {
     playbackActive = false;
     broadcastPlaybackEnd(clients);
   }
