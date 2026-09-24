@@ -50,19 +50,21 @@ function sendNoteOff(note) {
 // ===========================================
 // Sustain pedal (CC 64)
 //
-// Two sources: the MIDI input's pedal, and the on-screen Ped. button (which
-// sends CC 64 to the output, like the on-screen keys send notes). Either one
-// down lights the button, and keys released meanwhile stay pale green
-// ('sustained') until both are up - what the synth is still sounding.
+// Three sources: the MIDI input's pedal, the on-screen Ped. button (which
+// sends CC 64 to the output, like the on-screen keys send notes), and the
+// pedal in whatever is playing back. Any one down lights the button, and keys
+// released meanwhile stay pale green ('sustained') until all are up - what
+// the synth is still sounding.
 // ===========================================
 const btnPedal = $('btnPedal')
 let pedalFromMidi = false
 let pedalOnScreen = false
 let pedalLatched = false
+let pedalFromPlayback = false
 const sustainedNotes = new Set()
 
 function pedalIsDown() {
-    return pedalFromMidi || pedalOnScreen
+    return pedalFromMidi || pedalOnScreen || pedalFromPlayback
 }
 
 function renderPedal() {
@@ -195,11 +197,9 @@ function activateNote(note, isPlayback = false) {
     const cls = isPlayback ? 'playback' : 'active'
     keys[note].classList.add(cls)
     if (isPlayback) playbackNotes.add(note)
-    else {
-        // Struck again: it's held by the key now, not the pedal
-        keys[note].classList.remove('sustained')
-        sustainedNotes.delete(note)
-    }
+    // Struck again: it's held by the key now, not the pedal
+    keys[note].classList.remove('sustained')
+    sustainedNotes.delete(note)
 }
 
 function deactivateNote(note, isPlayback = false) {
@@ -207,7 +207,7 @@ function deactivateNote(note, isPlayback = false) {
     const cls = isPlayback ? 'playback' : 'active'
     keys[note].classList.remove(cls)
     if (isPlayback) playbackNotes.delete(note)
-    else if (pedalIsDown()) {
+    if (pedalIsDown()) {
         keys[note].classList.add('sustained')
         sustainedNotes.add(note)
     }
@@ -1629,7 +1629,17 @@ function stopPlaybackAnimation() {
     timeline.isPlaying = false
 }
 
+function setPlaybackPedal(down) {
+    if (down === pedalFromPlayback) return
+    pedalFromPlayback = down
+    renderPedal()
+}
+
 function handlePlaybackStatus(data) {
+    // The server lifts the pedal (CC 64 off) when playback pauses or stops,
+    // and a new playback starts from its own pedal state.
+    if (data.status !== 'resumed') setPlaybackPedal(false)
+
     if (data.status === 'started') {
         playbackActive = true
         progressContainer.classList.add('active')
@@ -1664,6 +1674,7 @@ function handlePlaybackEvent(data) {
 
     if (isNoteOn(event)) activateNote(event.note, true)
     else if (isNoteOff(event)) deactivateNote(event.note, true)
+    else if (isSustainEvent(event)) setPlaybackPedal(event.value >= 64)
 
     // Calibrate animation timing based on actual event timestamp
     if (event.timestamp != null) {
