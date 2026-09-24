@@ -50,10 +50,11 @@
     <!-- Transport (io.js): the bar - whatever is playing, and on Import / Export
          the selected row too, plus Import - and under it the piano roll / score
          panels for that item. Always on Import / Export; on the other tabs it
-         appears when something plays and stays until closed (the X shows once
-         playback is done). -->
+         appears when something plays and stays until closed with its X. The
+         piano roll / score open as a drawer over the page. -->
     <div class="transport" id="transport">
         <div class="io-toolbar" id="ioToolbar">
+            <button class="io-bar-close hidden" id="ioBarClose" title="Close">&#x2715;</button>
             <div class="io-toolbar-main">
                 <input type="file" id="midiFileInput" accept=".mid,.midi,audio/midi,audio/x-midi" hidden>
                 <button class="btn btn-primary io-import-btn" id="btnSelectFile" title="Import a .mid file">&#xFF0B; Import .mid</button>
@@ -69,7 +70,6 @@
                     <button class="btn-icon" id="ioPiano" title="Piano roll" disabled>&#x1F3B9;</button>
                     <button class="btn-icon" id="ioScore" title="Score" disabled>&#x1D11E;</button>
                 </div>
-                <button class="io-bar-close hidden" id="ioBarClose" title="Close (playback is over)">&#x2715;</button>
             </div>
             <div class="io-progress"><div class="io-progress-fill" id="ioProgressFill"></div></div>
             <div id="fileInfo" class="file-info"></div>

@@ -375,13 +375,19 @@ describe.skipIf(!!reason)("shared player", () => {
     await page.waitForTimeout(300);
     expect(await lit()).toEqual([false, false, false]);
 
-    // The piano roll opens under the bar right where you are
+    expect(await page.isVisible("#ioBarClose")).toBe(false); // the bar's home tab
+
+    // The piano roll opens as a drawer under the bar, right where you are,
+    // without moving the page
     await page.click('#tabs .tab[data-view="history"]');
-    expect(await page.isVisible("#ioBarClose")).toBe(false); // not while playing
+    expect(await page.isVisible("#ioBarClose")).toBe(true);
+    const listTop = () => page.evaluate(() => document.getElementById("viewHistory")!.getBoundingClientRect().top);
+    const before = await listTop();
     await page.click("#ioPiano");
     await page.waitForTimeout(500);
     expect(await page.isVisible("#viewHistory")).toBe(true);
     expect(await page.isVisible("#ioPreview")).toBe(true);
+    expect(await listTop()).toBe(before);
 
     // ...and Stop on another tab's bar stops it; the bar (and piano roll) stay
     // until closed with the X
@@ -395,6 +401,33 @@ describe.skipIf(!!reason)("shared player", () => {
     await page.click("#ioBarClose");
     expect(await barShown()).toBe(false);
     expect(await page.isVisible("#ioPreview")).toBe(false);
+
+    // Closed while a loop plays, it stays closed through the loop's passes,
+    // and comes back for the next thing started
+    const short = (key: string) =>
+      fetch(`${URL}api/playback/start`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          events: [
+            { timestamp: t, channel: 0, type: "noteon", note: 60, velocity: 90 },
+            { timestamp: t + 100, channel: 0, type: "noteoff", note: 60, velocity: 0 },
+          ],
+          key,
+          loop: true,
+        }),
+      });
+    await short("history:y");
+    await page.waitForTimeout(300);
+    expect(await barShown()).toBe(true);
+    await page.click("#ioBarClose");
+    await page.waitForTimeout(1000); // a few loop passes
+    expect(await barShown()).toBe(false);
+    await short("history:y");
+    await page.waitForTimeout(300);
+    expect(await barShown()).toBe(true);
+    await fetch(`${URL}api/playback/loop`, { method: "POST", headers: { "Content-Type": "application/json" }, body: '{"loop":false}' });
+    await fetch(`${URL}api/playback/stop`, { method: "POST" });
     expect(errors).toEqual([]);
     await page.close();
   }, 30_000);

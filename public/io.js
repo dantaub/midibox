@@ -139,24 +139,21 @@ function ioStandIn(clip) {
         })
 }
 
-// Shown on Import / Export always. Elsewhere it appears when something plays
-// and stays (panels and all) until closed with its X, offered once it's over.
+// Shown on Import / Export always. Elsewhere it appears whenever something is
+// started (not for a loop's next pass) or is found playing on connect, and
+// stays, drawer and all, until closed with its X - playing or not.
 let ioBarDismissed = true
 
 function updateTransportBar() {
     const onIO = !ioView.classList.contains('hidden')
-    const idle = player.state.status === 'idle'
-    if (!idle) ioBarDismissed = false
     const shown = onIO || !ioBarDismissed
     const revealed = shown && ioTransport.classList.contains('hidden')
-    const resized = ioTransport.classList.contains('elsewhere') !== !onIO
     ioToolbar.classList.toggle('elsewhere', !onIO)
     ioTransport.classList.toggle('elsewhere', !onIO)
     ioTransport.classList.toggle('hidden', !shown)
-    ioBarClose.classList.toggle('hidden', onIO || !idle)
-    // Panels can't be measured while hidden: size them on reveal (and when
-    // their height changes with the tab)
-    if (shown && (revealed || resized)) {
+    ioBarClose.classList.toggle('hidden', onIO)  // its home tab: always there
+    // Panels can't be measured while hidden: size them on reveal
+    if (revealed) {
         requestAnimationFrame(() => {
             if (ioPreviewInstance) ioPreviewInstance.resize()
             if (ioScoreKey) relayoutScoreView()
@@ -171,7 +168,10 @@ ioBarClose.addEventListener('click', () => {
     updateTransportBar()
 })
 
-player.on((state, reason) => {
+player.on((state, reason, message) => {
+    if ((reason === 'started' && !message?.restart) || (reason === 'state' && state.status !== 'idle')) {
+        ioBarDismissed = false
+    }
     if (state.status !== 'idle') {
         ioStandIn(state.clip)
         // The clip knows its length before the item's events are fetched
@@ -278,7 +278,7 @@ function updateIOButtons() {
     setPlayBtn(ioPlayPauseBtn, barKey())
     ioPianoBtn.classList.toggle('active', !ioPreview.classList.contains('hidden'))
     ioScoreBtn.classList.toggle('active', !!ioScoreKey)
-    ioTransportPanels.classList.toggle('hidden', ioPreview.classList.contains('hidden') && !ioScoreKey)
+    ioTransportPanels.classList.toggle('open', !ioPreview.classList.contains('hidden') || !!ioScoreKey)
     for (const row of ioView.querySelectorAll('.io-item')) {
         row.classList.toggle('selected', row.dataset.key === ioCurrentKey)
         const btn = row.querySelector('.io-row-play')

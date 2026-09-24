@@ -1625,25 +1625,46 @@ main,
 
 /* Bar + piano roll / score panels, under the header on every tab (io.js) */
 .transport {
+	position: relative;
+	z-index: 40;
 	flex-shrink: 0;
 	display: flex;
 	flex-direction: column;
 	background: #16213e;
 }
 
-/* The open piano roll and score, for what the bar shows: in a band that
-   scrolls on its own so the page under it keeps its place */
+/* The open piano roll and score, for what the bar shows: a drawer that slides
+   down over the page from under the bar, so nothing below it moves. It stays
+   laid out while closed (just invisible), so the roll can always measure. */
 .transport-panels {
+	position: absolute;
+	top: 100%;
+	left: 0;
+	right: 0;
 	display: flex;
 	flex-direction: column;
 	align-items: center;
 	gap: 0.75rem;
-	max-height: 55vh;
+	max-height: 62vh;
 	overflow-y: auto;
 	overscroll-behavior: contain;
 	padding: 0.75rem max(1rem, env(safe-area-inset-right)) 0.75rem max(1rem, env(safe-area-inset-left));
-	background: #1a1a2e;
+	background: rgba(26, 26, 46, 0.97);
 	border-bottom: 1px solid #26264a;
+	box-shadow: 0 12px 24px rgba(0, 0, 0, 0.45);
+	transform: translateY(-0.75rem);
+	opacity: 0;
+	visibility: hidden;
+	pointer-events: none;
+	transition: transform 0.18s ease-out, opacity 0.18s ease-out, visibility 0s linear 0.18s;
+}
+
+.transport-panels.open {
+	transform: none;
+	opacity: 1;
+	visibility: visible;
+	pointer-events: auto;
+	transition: transform 0.18s ease-out, opacity 0.18s ease-out;
 }
 
 .transport-panels > * {
@@ -1656,29 +1677,23 @@ main,
 	max-width: 1400px;
 }
 
-/* Visiting another tab, the panels share the screen with that tab's own
-   content, so they're shorter */
-.transport.elsewhere .transport-panels {
-	max-height: 38vh;
-}
-
-.transport.elsewhere .io-preview-body {
-	height: 26vh;
-}
-
-.transport.elsewhere .io-score-body .score-container {
-	max-height: 26vh;
-}
-
-/* Closes the bar on the tabs it visits, once playback is over */
+/* Closes the bar (and its drawer) on the tabs it visits; pinned to the far
+   right of the bar, which keeps its content clear of it */
 .io-bar-close {
-	flex-shrink: 0;
+	position: absolute;
+	top: 50%;
+	right: max(0.5rem, env(safe-area-inset-right));
+	transform: translateY(-50%);
 	background: transparent;
 	border: none;
 	color: #888;
-	font-size: 1rem;
-	padding: 0.3rem 0.4rem;
+	font-size: 1.1rem;
+	padding: 0.4rem 0.5rem;
 	cursor: pointer;
+}
+
+.io-toolbar.elsewhere {
+	padding-right: max(3rem, calc(env(safe-area-inset-right) + 2.5rem), calc((100% - 780px) / 2 + 1rem));
 }
 
 @media (hover: hover) {

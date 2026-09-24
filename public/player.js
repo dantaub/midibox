@@ -13,7 +13,8 @@
 //
 //   player.state          { status: 'idle'|'playing'|'paused', clip, loop }
 //   player.position()     clip-time position, gliding between server updates
-//   player.on(fn)         fn(state, reason) on every status / clip / loop change
+//   player.on(fn)         fn(state, reason, message) on every status / clip / loop
+//                         change (message: the server's, when it came from one)
 //   player.onTick(fn)     fn(position) every frame while playing (and once on change)
 //   player.playRange({ start, end, title, key, source, from })
 //   player.playFile({ data, name, title, key, source, from })
@@ -44,9 +45,9 @@ const player = (() => {
         clk.at = performance.now()
     }
 
-    function emit(reason) {
+    function emit(reason, message) {
         for (const fn of listeners) {
-            try { fn(state, reason) } catch (err) { console.error('Player listener failed:', err) }
+            try { fn(state, reason, message) } catch (err) { console.error('Player listener failed:', err) }
         }
         tickOnce()
         if (state.status === 'playing') startTicking()
@@ -100,7 +101,7 @@ const player = (() => {
             default:
                 return
         }
-        emit(data.status)
+        emit(data.status, data)
     }
 
     function handleEvent(data) {

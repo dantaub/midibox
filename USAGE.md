@@ -121,9 +121,11 @@ Playback is exclusive — starting one stops the last. There is one player for
 the whole app (and every device connected to it). Whenever something plays, the
 **transport bar** appears under the header on every tab (it's always there on
 Import / Export): what's playing, ⏸/▶, ⏹, loop, elapsed / total time, and the
-piano roll and score, which open right under the bar on whatever tab you're
-on. It stays after playback ends, so you can replay or keep reading the score;
-close it with the **✕** at its right end once playback is over. A History
+piano roll and score, which slide down as a drawer over whatever tab you're
+on (nothing on the page moves). It stays after playback ends, so you can
+replay or keep reading the score, until you close it with the **✕** at its
+far right (playing or not; playback carries on). Starting something again
+brings it back. A History
 stretch or timeline selection shows there as an **Unsaved session**. That bar, the ⏹
 and loop buttons that appear beside **Live** while something plays (they stay in
 fullscreen, where the bar is hidden), the Playback panel's **Stop**, and
