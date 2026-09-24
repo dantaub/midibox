@@ -165,8 +165,8 @@ piano.addEventListener('touchend', (e) => {
     }
 }, { passive: false })
 
-piano.addEventListener('touchmove', (e) => {
-    e.preventDefault()
+// Hold exactly the keys under the fingers still down
+function syncPianoTouches(e) {
     const currentNotes = new Set()
     for (const touch of e.touches) {
         const key = document.elementFromPoint(touch.clientX, touch.clientY)?.closest('.white-key, .black-key')
@@ -174,7 +174,16 @@ piano.addEventListener('touchmove', (e) => {
     }
     pressedKeys.forEach(note => { if (!currentNotes.has(note)) sendNoteOff(note) })
     currentNotes.forEach(note => sendNoteOn(note))
+}
+
+piano.addEventListener('touchmove', (e) => {
+    e.preventDefault()
+    syncPianoTouches(e)
 }, { passive: false })
+
+// iOS cancels touches (a system gesture, an alert, the app switcher); without
+// this the keys under them would stay held.
+piano.addEventListener('touchcancel', syncPianoTouches)
 
 // ===========================================
 // Note Visualization
@@ -1049,6 +1058,10 @@ function endTimelineDrag(e) {
 }
 document.addEventListener('mouseup', endTimelineDrag)
 document.addEventListener('touchend', endTimelineDrag)
+// A cancelled touch isn't a tap: just drop the drag. A drag left behind would
+// keep swallowing touchmove page-wide and treat the next touchend anywhere
+// (say, on the edit panel's Save) as a tap on the timeline.
+document.addEventListener('touchcancel', () => { dragState = null })
 
 // Double-click on session to open edit panel (desktop; touch uses double-tap
 // detection inside endTimelineDrag above)
@@ -1186,9 +1199,11 @@ document.addEventListener('touchmove', async (e) => {
     drawTimeline()
 }, { passive: false })
 
-document.addEventListener('touchend', (e) => {
+function endPinch(e) {
     if (e.touches.length < 2) pinchState = null
-})
+}
+document.addEventListener('touchend', endPinch)
+document.addEventListener('touchcancel', endPinch)
 
 // Keyboard navigation
 document.addEventListener('keydown', async (e) => {
@@ -1919,10 +1934,11 @@ btnInputMenu.addEventListener('click', async (e) => {
     }
 })
 
-// Close when clicking anywhere outside the menu
-document.addEventListener('click', (e) => {
+// Close when clicking anywhere outside the menu. pointerdown, not click: iOS
+// Safari sends no click for a tap on plain page content.
+document.addEventListener('pointerdown', (e) => {
     if (inputMenu.classList.contains('hidden')) return
-    if (!inputMenu.contains(e.target) && e.target !== btnInputMenu) closeInputMenu()
+    if (!inputMenu.contains(e.target) && !btnInputMenu.contains(e.target)) closeInputMenu()
 })
 
 inputMenu.addEventListener('click', async (e) => {
@@ -2347,7 +2363,11 @@ $('btnEditDelete').addEventListener('click', async () => {
     }
 })
 
-sessionList.addEventListener('click', (e) => {
+// A second click on the same row soon after opens the edit panel. Counted
+// here rather than with dblclick, which iPad Safari doesn't reliably send.
+let lastSessionClick = { id: null, at: 0 }
+
+sessionList.addEventListener('click', async (e) => {
     const item = e.target.closest('.session-item')
     if (item) {
         sessionList.querySelectorAll('.session-item').forEach(i => {
@@ -2358,20 +2378,15 @@ sessionList.addEventListener('click', (e) => {
         const sessionId = parseInt(item.dataset.id)
         const startTime = parseInt(item.dataset.start)
         const endTime = parseInt(item.dataset.end)
-        selectSession(sessionId, startTime, endTime)
-    }
-})
+        const now = Date.now()
+        const isDouble = lastSessionClick.id === sessionId && now - lastSessionClick.at < 400
+        lastSessionClick = isDouble ? { id: null, at: 0 } : { id: sessionId, at: now }
 
-// Double-click on session in sidebar to open edit panel
-sessionList.addEventListener('dblclick', async (e) => {
-    const item = e.target.closest('.session-item')
-    if (item) {
-        const sessionId = parseInt(item.dataset.id)
-        const startTime = parseInt(item.dataset.start)
-        const endTime = parseInt(item.dataset.end)
         await selectSession(sessionId, startTime, endTime)
-        showEditPanel(sessionId)
-        $('editPerformer').focus()
+        if (isDouble) {
+            showEditPanel(sessionId)
+            $('editPerformer').focus()
+        }
     }
 })
 
@@ -2548,10 +2563,15 @@ function updateDirectionControls() {
 // Fullscreen
 //
 // Uses the Fullscreen API where it exists, and a CSS mode everywhere else -
-// iPad Safari won't fullscreen anything but a <video>, so the class is what
-// actually does the work there.
+// iPhone Safari won't fullscreen anything but a <video> (iPad Safari only
+// has the webkit-prefixed API before 16.4), so the class is what actually
+// does the work there.
 // ===========================================
 const btnFullscreen = $('timelineFullscreen')
+
+function fullscreenElement() {
+    return document.fullscreenElement || document.webkitFullscreenElement || null
+}
 
 function setFullscreen(on) {
     document.body.classList.toggle('fullscreen-mode', on)
@@ -2560,10 +2580,14 @@ function setFullscreen(on) {
     localStorage.setItem('midibox-fullscreen', on ? '1' : '0')
 
     const el = document.documentElement
-    if (on && el.requestFullscreen && !document.fullscreenElement) {
-        el.requestFullscreen().catch(() => {})  // denied without a gesture; the CSS mode still applies
-    } else if (!on && document.fullscreenElement && document.exitFullscreen) {
-        document.exitFullscreen().catch(() => {})
+    const request = el.requestFullscreen || el.webkitRequestFullscreen
+    const exit = document.exitFullscreen || document.webkitExitFullscreen
+    if (on && request && !fullscreenElement()) {
+        // Denied without a gesture; the CSS mode still applies. Older
+        // Safari's prefixed call returns nothing rather than a promise.
+        Promise.resolve(request.call(el)).catch(() => {})
+    } else if (!on && fullscreenElement() && exit) {
+        Promise.resolve(exit.call(document)).catch(() => {})
     }
 
     // The canvas can only be measured once the layout has settled
@@ -2578,11 +2602,13 @@ btnFullscreen.addEventListener('click', () => {
 })
 
 // Leaving via Esc or the browser's own control should drop the CSS mode too
-document.addEventListener('fullscreenchange', () => {
-    if (!document.fullscreenElement && document.body.classList.contains('fullscreen-mode')) {
+function onFullscreenChange() {
+    if (!fullscreenElement() && document.body.classList.contains('fullscreen-mode')) {
         setFullscreen(false)
     }
-})
+}
+document.addEventListener('fullscreenchange', onFullscreenChange)
+document.addEventListener('webkitfullscreenchange', onFullscreenChange)
 
 btnFlip.addEventListener('click', () => {
     timeline.flipped = !timeline.flipped
@@ -2691,6 +2717,7 @@ eventLogHeader.addEventListener('touchmove', (e) => {
 }, { passive: false })
 
 eventLogHeader.addEventListener('touchend', endLogDrag)
+eventLogHeader.addEventListener('touchcancel', endLogDrag)
 
 // ===========================================
 // Initialize

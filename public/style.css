@@ -60,8 +60,10 @@ header {
 	white-space: nowrap;
 }
 
-.btn-connect:hover {
-	color: #eee;
+@media (hover: hover) {
+	.btn-connect:hover {
+		color: #eee;
+	}
 }
 
 .btn-connect.connected {
@@ -89,8 +91,10 @@ header {
 	cursor: pointer;
 }
 
-.tab:hover {
-	color: #eee;
+@media (hover: hover) {
+	.tab:hover {
+		color: #eee;
+	}
 }
 
 .tab.active {
@@ -109,8 +113,10 @@ header {
 	white-space: nowrap;
 }
 
-.header-control .btn-icon:hover {
-	color: #eee;
+@media (hover: hover) {
+	.header-control .btn-icon:hover {
+		color: #eee;
+	}
 }
 
 .header-control .btn-icon.active {
@@ -141,8 +147,10 @@ h1 {
 	line-height: 1;
 }
 
-.input-menu-arrow:hover {
-	color: #fff;
+@media (hover: hover) {
+	.input-menu-arrow:hover {
+		color: #fff;
+	}
 }
 
 .input-menu {
@@ -173,9 +181,11 @@ h1 {
 	white-space: nowrap;
 }
 
-.input-menu-item:hover {
-	background: #2a2a45;
-	color: #fff;
+@media (hover: hover) {
+	.input-menu-item:hover {
+		background: #2a2a45;
+		color: #fff;
+	}
 }
 
 .input-menu-item.selected {
@@ -408,8 +418,10 @@ main {
 	cursor: pointer;
 }
 
-.session-item:hover {
-	background: #252550;
+@media (hover: hover) {
+	.session-item:hover {
+		background: #252550;
+	}
 }
 
 .session-item.selected {
@@ -504,8 +516,10 @@ main {
 	color: white;
 }
 
-.btn:hover {
-	opacity: 0.9;
+@media (hover: hover) {
+	.btn:hover {
+		opacity: 0.9;
+	}
 }
 
 .btn:disabled {
@@ -667,9 +681,11 @@ select {
 	white-space: nowrap;
 }
 
-.btn-live-toggle:hover {
-	background: #252550;
-	color: #fff;
+@media (hover: hover) {
+	.btn-live-toggle:hover {
+		background: #252550;
+		color: #fff;
+	}
 }
 
 .btn-live-toggle.active {
@@ -688,9 +704,11 @@ select {
 	cursor: pointer;
 }
 
-.timeline-controls button:hover {
-	background: #252550;
-	color: #fff;
+@media (hover: hover) {
+	.timeline-controls button:hover {
+		background: #252550;
+		color: #fff;
+	}
 }
 
 .timeline-controls button.active {
@@ -993,8 +1011,10 @@ select {
 	padding: 0 0.25rem;
 }
 
-.floating-panel-close:hover {
-	color: #eee;
+@media (hover: hover) {
+	.floating-panel-close:hover {
+		color: #eee;
+	}
 }
 
 .floating-panel .event-log {
@@ -1117,8 +1137,10 @@ select {
 	border-left: 3px solid transparent;
 }
 
-.day-item:hover {
-	background: #20203a;
+@media (hover: hover) {
+	.day-item:hover {
+		background: #20203a;
+	}
 }
 
 .day-item.selected {
@@ -1190,8 +1212,10 @@ select {
 	border-left: 3px solid transparent;
 }
 
-.segment-item:hover {
-	background: #20203a;
+@media (hover: hover) {
+	.segment-item:hover {
+		background: #20203a;
+	}
 }
 
 .segment-item.selected {
@@ -1267,8 +1291,10 @@ select {
 	cursor: pointer;
 }
 
-.segment-play:hover {
-	background: #3a7a4a;
+@media (hover: hover) {
+	.segment-play:hover {
+		background: #3a7a4a;
+	}
 }
 
 /* Preview */
@@ -1351,8 +1377,10 @@ select {
 	padding: 0 0.25rem;
 }
 
-.btn-disconnect:hover {
-	color: #ff6b6b;
+@media (hover: hover) {
+	.btn-disconnect:hover {
+		color: #ff6b6b;
+	}
 }
 
 /* Compact header controls on narrow screens, so the timeline keeps its space */
@@ -1431,9 +1459,11 @@ select {
 	cursor: pointer;
 }
 
-.btn-smooth:hover {
-	background: #252550;
-	color: #fff;
+@media (hover: hover) {
+	.btn-smooth:hover {
+		background: #252550;
+		color: #fff;
+	}
 }
 
 .btn-smooth.active {
@@ -1480,8 +1510,13 @@ body {
 button,
 select,
 .tab,
-.toggle {
-	/* Removes the 300ms double-tap-to-zoom delay on the controls */
+.toggle,
+.session-item,
+.day-item,
+.segment-item,
+.io-item {
+	/* Removes the 300ms double-tap-to-zoom delay on the controls (and lets
+	   a double tap on a session row open it instead of zooming) */
 	touch-action: manipulation;
 }
 
@@ -1699,8 +1734,10 @@ main,
 	cursor: pointer;
 }
 
-.io-item:hover {
-	border-color: #3a3a66;
+@media (hover: hover) {
+	.io-item:hover {
+		border-color: #3a3a66;
+	}
 }
 
 .io-item.selected {
@@ -1751,10 +1788,12 @@ main,
 	font-size: 0.95rem;
 }
 
-.io-view .btn-icon:hover:not(:disabled),
-.io-view a.btn-icon:hover {
-	background: #26264a;
-	color: #fff;
+@media (hover: hover) {
+	.io-view .btn-icon:hover:not(:disabled),
+	.io-view a.btn-icon:hover {
+		background: #26264a;
+		color: #fff;
+	}
 }
 
 /* The treble clef glyph renders small next to the emoji icons */
@@ -1906,8 +1945,10 @@ main,
 	padding: 0.2rem 0.4rem;
 }
 
-.modal-close:hover {
-	color: #fff;
+@media (hover: hover) {
+	.modal-close:hover {
+		color: #fff;
+	}
 }
 
 .modal-body {
