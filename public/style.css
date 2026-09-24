@@ -1634,8 +1634,9 @@ main,
 }
 
 /* The open piano roll and score, for what the bar shows: a drawer that slides
-   down over the page from under the bar, so nothing below it moves. It stays
-   laid out while closed (just invisible), so the roll can always measure. */
+   down over the page from under the bar to 3/4 of the way down the window
+   (io.js sets its height), so nothing below it moves. It stays laid out while
+   closed (just invisible), so the roll can always measure. */
 .transport-panels {
 	position: absolute;
 	top: 100%;
@@ -1645,7 +1646,8 @@ main,
 	flex-direction: column;
 	align-items: center;
 	gap: 0.75rem;
-	max-height: 62vh;
+	--drawer-h: 60vh;
+	height: var(--drawer-h);
 	overflow-y: auto;
 	overscroll-behavior: contain;
 	padding: 0.75rem max(1rem, env(safe-area-inset-right)) 0.75rem max(1rem, env(safe-area-inset-left));
@@ -1671,6 +1673,15 @@ main,
 	width: 100%;
 	max-width: 780px;
 	flex-shrink: 0;
+}
+
+/* An open panel fills the drawer, its body taking the rest; with both open,
+   each keeps that full height and the drawer scrolls between them */
+.transport-panels > .io-preview {
+	flex: 0 0 auto;
+	height: calc(var(--drawer-h) - 1.5rem);
+	display: flex;
+	flex-direction: column;
 }
 
 .transport-panels > #ioScorePanel {
@@ -1964,15 +1975,24 @@ body.fullscreen-mode .transport {
 .io-preview-body {
 	display: flex;
 	flex-direction: column;
-	height: 42vh;
+	flex: 1;
+	min-height: 0;
 	overflow: hidden;
 	pointer-events: none;
 }
 
 /* Score panel: the notation scrolls on its own (following the playing
    chord) under a fixed channel / time / key toolbar */
+.io-score-body {
+	flex: 1;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+}
+
 .io-score-body .score-container {
-	max-height: 42vh;
+	flex: 1;
+	min-height: 0;
 	overflow-y: auto;
 }
 

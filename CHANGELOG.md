@@ -33,7 +33,7 @@ Two things need attention on an existing install:
   started it, shows in the transport bar (the Import / Export bar, now under
   the header on every tab while something plays: title, time, pause/resume,
   stop, loop, piano roll, score - the panels slide down as a drawer over the
-  page, on any tab, and the bar stays until closed with its X); a History stretch or
+  page, 3/4 of the way down, on any tab, closing on a tab change, and the bar stays until closed with its X); a History stretch or
   timeline selection shows as an *Unsaved session*. Every tab's Stop and Loop control that same
   playback. A History replay can now be stopped from the Live or Import /
   Export tab, and History, Live and Import / Export all have loop. The server

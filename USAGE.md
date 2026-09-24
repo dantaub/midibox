@@ -122,7 +122,8 @@ the whole app (and every device connected to it). Whenever something plays, the
 **transport bar** appears under the header on every tab (it's always there on
 Import / Export): what's playing, ⏸/▶, ⏹, loop, elapsed / total time, and the
 piano roll and score, which slide down as a drawer over whatever tab you're
-on (nothing on the page moves). It stays after playback ends, so you can
+on, reaching 3/4 of the way down the window (nothing on the page moves; the
+drawer closes when you change tabs). It stays after playback ends, so you can
 replay or keep reading the score, until you close it with the **✕** at its
 far right (playing or not; playback carries on). Starting something again
 brings it back. A History

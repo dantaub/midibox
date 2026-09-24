@@ -141,11 +141,20 @@ function ioStandIn(clip) {
 
 // Shown on Import / Export always. Elsewhere it appears whenever something is
 // started (not for a loop's next pass) or is found playing on connect, and
-// stays, drawer and all, until closed with its X - playing or not.
+// stays until closed with its X - playing or not. The drawer closes on any
+// change of tab.
 let ioBarDismissed = true
+let ioBarView = null   // tab the bar was last shown on
+
+function currentView() {
+    return document.querySelector('#tabs .tab.active')?.dataset.view ?? null
+}
 
 function updateTransportBar() {
     const onIO = !ioView.classList.contains('hidden')
+    const view = currentView()
+    if (ioBarView !== null && view !== ioBarView) closeIODrawer()
+    ioBarView = view
     const shown = onIO || !ioBarDismissed
     const revealed = shown && ioTransport.classList.contains('hidden')
     ioToolbar.classList.toggle('elsewhere', !onIO)
@@ -153,13 +162,26 @@ function updateTransportBar() {
     ioTransport.classList.toggle('hidden', !shown)
     ioBarClose.classList.toggle('hidden', onIO)  // its home tab: always there
     // Panels can't be measured while hidden: size them on reveal
-    if (revealed) {
-        requestAnimationFrame(() => {
-            if (ioPreviewInstance) ioPreviewInstance.resize()
-            if (ioScoreKey) relayoutScoreView()
-        })
-    }
+    if (revealed) requestAnimationFrame(sizeIODrawer)
 }
+
+function closeIODrawer() {
+    if (!ioPreview.classList.contains('hidden')) closeIOPreview()
+    if (ioScoreKey) closeIOScore()
+}
+
+// The drawer reaches 3/4 of the way down the window, whatever the bar's height.
+function sizeIODrawer() {
+    if (ioTransport.classList.contains('hidden')) return
+    const top = ioTransport.getBoundingClientRect().bottom
+    const height = Math.max(200, Math.round(window.innerHeight * 0.75 - top))
+    if (ioTransportPanels.style.getPropertyValue('--drawer-h') === `${height}px`) return
+    ioTransportPanels.style.setProperty('--drawer-h', `${height}px`)
+    if (ioPreviewInstance) ioPreviewInstance.resize()
+    if (ioScoreKey) relayoutScoreView()
+}
+window.addEventListener('resize', sizeIODrawer)
+if (typeof ResizeObserver !== 'undefined') new ResizeObserver(sizeIODrawer).observe(ioToolbar)
 
 ioBarClose.addEventListener('click', () => {
     ioBarDismissed = true

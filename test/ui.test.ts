@@ -388,6 +388,18 @@ describe.skipIf(!!reason)("shared player", () => {
     expect(await page.isVisible("#viewHistory")).toBe(true);
     expect(await page.isVisible("#ioPreview")).toBe(true);
     expect(await listTop()).toBe(before);
+    // ...reaching 3/4 of the way down the window
+    const drawerBottom = await page.evaluate(() => document.getElementById("transportPanels")!.getBoundingClientRect().bottom / innerHeight);
+    expect(Math.abs(drawerBottom - 0.75)).toBeLessThan(0.01);
+
+    // Changing tabs closes the drawer (the bar stays); open it again here
+    await page.click('#tabs .tab[data-view="live"]');
+    expect(await page.isVisible("#ioPreview")).toBe(false);
+    expect(await barShown()).toBe(true);
+    await page.click('#tabs .tab[data-view="history"]');
+    await page.click("#ioPiano");
+    await page.waitForTimeout(300);
+    expect(await page.isVisible("#ioPreview")).toBe(true);
 
     // ...and Stop on another tab's bar stops it; the bar (and piano roll) stay
     // until closed with the X
