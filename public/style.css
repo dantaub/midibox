@@ -125,78 +125,7 @@ header {
 	border-color: #2a5a3a;
 }
 
-/* Now playing (player.js): whatever is playing, on every tab. Idle, only the
-   loop toggle shows, so loop can be armed before pressing play. */
-.now-playing {
-	display: flex;
-	align-items: center;
-	gap: 0.35rem;
-	/* Playing, it takes the header's free space and the title gives way
-	   (ellipsis), rather than pushing the header onto a second row. */
-	flex: 1 1 0;
-	min-width: 12.5rem;
-	max-width: 30rem;
-	background: #0f1830;
-	border: 1px solid #2a2a4a;
-	border-radius: 6px;
-	padding: 0.2rem 0.3rem 0.2rem 0.6rem;
-}
-
-.now-playing.idle {
-	flex: 0 0 auto;
-	min-width: 0;
-	padding-left: 0.3rem;
-}
-
-.now-playing.idle .np-title,
-.now-playing.idle .np-time,
-.now-playing.idle #npPlayPause,
-.now-playing.idle #npStop {
-	display: none;
-}
-
-.np-title {
-	flex: 1 1 auto;
-	min-width: 0;
-	font-size: 0.8rem;
-	color: #eee;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
-
-.np-time {
-	font-size: 0.75rem;
-	color: #8a8aa8;
-	font-variant-numeric: tabular-nums;
-	white-space: nowrap;
-}
-
-.now-playing .btn-icon {
-	background: #1a1a2e;
-	color: #b0b0c0;
-	border: 1px solid #2a2a4a;
-	border-radius: 4px;
-	padding: 0.25rem 0.5rem;
-	font-size: 0.85rem;
-	line-height: 1;
-	cursor: pointer;
-}
-
-.now-playing .btn-icon:disabled {
-	opacity: 0.4;
-	cursor: default;
-}
-
-@media (hover: hover) {
-	.now-playing .btn-icon:hover:not(:disabled) {
-		color: #fff;
-		background: #252550;
-	}
-}
-
 /* Loop is on: the same lit look wherever the toggle appears */
-.now-playing #npLoop.active,
 .timeline-controls #timelineLoop.active,
 .history-preview-actions .btn-loop.active {
 	background: #4a2e2e;
@@ -1694,25 +1623,93 @@ main,
 	max-width: var(--io-col);
 }
 
-.io-view > #ioScorePanel {
+/* Bar + piano roll / score panels, under the header on every tab (io.js) */
+.transport {
+	flex-shrink: 0;
+	display: flex;
+	flex-direction: column;
+	background: #16213e;
+}
+
+/* The open piano roll and score, for what the bar shows: in a band that
+   scrolls on its own so the page under it keeps its place */
+.transport-panels {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 0.75rem;
+	max-height: 55vh;
+	overflow-y: auto;
+	overscroll-behavior: contain;
+	padding: 0.75rem max(1rem, env(safe-area-inset-right)) 0.75rem max(1rem, env(safe-area-inset-left));
+	background: #1a1a2e;
+	border-bottom: 1px solid #26264a;
+}
+
+.transport-panels > * {
+	width: 100%;
+	max-width: 780px;
+	flex-shrink: 0;
+}
+
+.transport-panels > #ioScorePanel {
 	max-width: 1400px;
 }
 
-/* Transport bar: sticks under the header while the IO tab scrolls. Spans the
-   pane edge to edge (negative margins undo its padding), with its contents
-   padded in to line up with the reading column. */
-.io-view > .io-toolbar {
-	align-self: stretch;
-	width: auto;
-	max-width: none;
-	margin: 0 -1rem;
-	padding: 0.6rem max(1rem, calc((100% - var(--io-col)) / 2 + 1rem)) calc(0.6rem + 3px);
+/* Visiting another tab, the panels share the screen with that tab's own
+   content, so they're shorter */
+.transport.elsewhere .transport-panels {
+	max-height: 38vh;
 }
 
+.transport.elsewhere .io-preview-body {
+	height: 26vh;
+}
+
+.transport.elsewhere .io-score-body .score-container {
+	max-height: 26vh;
+}
+
+/* Closes the bar on the tabs it visits, once playback is over */
+.io-bar-close {
+	flex-shrink: 0;
+	background: transparent;
+	border: none;
+	color: #888;
+	font-size: 1rem;
+	padding: 0.3rem 0.4rem;
+	cursor: pointer;
+}
+
+@media (hover: hover) {
+	.io-bar-close:hover {
+		color: #eee;
+	}
+}
+
+/* Line-drawn loop icon (an emoji would ignore the button's color, so the lit
+   state couldn't show) */
+.icon-loop {
+	width: 1.1em;
+	height: 1.1em;
+	vertical-align: -0.2em;
+	fill: none;
+	stroke: currentColor;
+	stroke-width: 2.2;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+}
+
+/* Transport bar: under the header, spanning the page, with its contents
+   padded in to line up with the Import / Export reading column (780px, as
+   .io-view's --io-col). On Import / Export it's always there; on the other
+   tabs only while something plays, and without the Import button. */
 .io-toolbar {
-	position: sticky;
-	top: 0;
-	z-index: 50;
+	position: relative;
+	flex-shrink: 0;
+	padding-block: 0.6rem calc(0.6rem + 3px);
+	padding-left: max(1rem, env(safe-area-inset-left), calc((100% - 780px) / 2 + 1rem));
+	padding-right: max(1rem, env(safe-area-inset-right), calc((100% - 780px) / 2 + 1rem));
 	background: #16213e;
 	border-bottom: 1px solid #26264a;
 	display: flex;
@@ -1793,6 +1790,15 @@ main,
 	display: none;
 }
 
+.io-toolbar.elsewhere .io-import-btn,
+.io-toolbar.elsewhere .file-info {
+	display: none;
+}
+
+body.fullscreen-mode .transport {
+	display: none;
+}
+
 .io-section-title {
 	margin: 0.25rem 0 0.5rem;
 	font-size: 1rem;
@@ -1861,7 +1867,8 @@ main,
 
 /* Mid-grey text: <button> defaults to black, invisible on the dark rows */
 .io-view .btn-icon,
-.io-view a.btn-icon {
+.io-view a.btn-icon,
+.transport .btn-icon {
 	color: #b0b0c0;
 }
 
@@ -1881,6 +1888,7 @@ main,
 
 @media (hover: hover) {
 	.io-view .btn-icon:hover:not(:disabled),
+	.transport .btn-icon:hover:not(:disabled),
 	.io-view a.btn-icon:hover {
 		background: #26264a;
 		color: #fff;
@@ -1901,6 +1909,7 @@ main,
 
 /* The item that is playing (or paused), and the open piano roll */
 .io-view .btn-icon.playing,
+.io-transport .btn-icon.playing,
 .io-transport .btn-icon.active {
 	background: #4a2e2e;
 	border-color: #6b3a3a;
@@ -1940,7 +1949,7 @@ main,
 .io-preview-body {
 	display: flex;
 	flex-direction: column;
-	height: 55vh;
+	height: 42vh;
 	overflow: hidden;
 	pointer-events: none;
 }
@@ -1948,7 +1957,7 @@ main,
 /* Score panel: the notation scrolls on its own (following the playing
    chord) under a fixed channel / time / key toolbar */
 .io-score-body .score-container {
-	max-height: 55vh;
+	max-height: 42vh;
 	overflow-y: auto;
 }
 

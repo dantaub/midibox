@@ -4,9 +4,9 @@
 // The one thing that plays. The server owns the current clip (what's playing,
 // paused or not, looping or not) and loops it itself; this mirrors that state
 // from the WebSocket (app.js feeds it every `playback` / `playback-event`
-// message) and sends the commands. Every view's transport - the header strip
-// here, the Live timeline, History and Import/Export - drives this same
-// player, so Stop anywhere stops whatever is playing, wherever it started.
+// message) and sends the commands. Every transport - the bar under the header
+// (io.js), the Live timeline and History - drives this same player, so Stop
+// anywhere stops whatever is playing, wherever it started.
 //
 // Loaded before app.js: nothing here touches app.js globals until a command
 // runs (outputSelect) or a message arrives.
@@ -184,44 +184,4 @@ const player = (() => {
         onTick: fn => tickers.push(fn),
         playRange, playFile, toggle, stop, setLoop, seek, isCurrent,
     }
-})()
-
-// ---- Header strip: what's playing, on every tab ----------------------------
-;(() => {
-    const strip = document.getElementById('nowPlaying')
-    const title = document.getElementById('npTitle')
-    const time = document.getElementById('npTime')
-    const playPause = document.getElementById('npPlayPause')
-    const stopBtn = document.getElementById('npStop')
-    const loopBtn = document.getElementById('npLoop')
-
-    const fmt = ms => {
-        const s = Math.max(0, Math.round(ms / 1000))
-        return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
-    }
-
-    player.on((state) => {
-        const active = state.status !== 'idle'
-        strip.classList.toggle('idle', !active)
-        title.textContent = active ? (state.clip?.title || 'Playing') : ''
-        title.title = title.textContent
-        playPause.innerHTML = state.status === 'playing' ? '&#x23F8;' : '&#x25B6;'
-        playPause.title = state.status === 'playing' ? 'Pause' : 'Resume'
-        playPause.disabled = !active
-        stopBtn.disabled = !active
-        loopBtn.classList.toggle('active', state.loop)
-        loopBtn.setAttribute('aria-pressed', String(state.loop))
-        loopBtn.title = state.loop
-            ? 'Loop on: whatever plays starts over when it ends'
-            : 'Loop: start over when it ends'
-    })
-
-    player.onTick((pos) => {
-        const clip = player.state.clip
-        time.textContent = clip && pos != null ? `${fmt(pos - clip.start)} / ${fmt(clip.end - clip.start)}` : ''
-    })
-
-    playPause.addEventListener('click', () => player.toggle())
-    stopBtn.addEventListener('click', () => player.stop())
-    loopBtn.addEventListener('click', () => player.setLoop(!player.state.loop))
 })()

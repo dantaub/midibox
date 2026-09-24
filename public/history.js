@@ -18,6 +18,9 @@ function switchView(name) {
         tab.classList.toggle('active', tab.dataset.view === name)
     })
     localStorage.setItem('midibox-view', name)
+    // The transport bar shows on every tab while something plays (io.js,
+    // loaded later - the first switchView runs before it exists)
+    if (typeof updateTransportBar === 'function') updateTransportBar()
 
     // Canvases can't be measured while hidden - size them on reveal
     if (name === 'live') {

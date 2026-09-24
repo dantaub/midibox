@@ -6,11 +6,17 @@
 // saveImport/listImports/getImport/deleteImport, openScoreView,
 // scoreHighlightAt, relayoutScoreView).
 //
-// Layout: a sticky transport bar (Import button + whatever is selected or
-// playing: title, date, play/pause, stop, elapsed/total, piano roll, score),
-// then the piano-roll and score panels for that item, then the Imports and Sessions
-// lists. Rows only carry per-item actions (play, download, delete); clicking a
-// row selects it into the bar.
+// Layout: a transport bar under the header (Import button + whatever is
+// selected or playing: title, date, play/pause, stop, loop, elapsed/total,
+// piano roll, score), then the piano-roll and score panels for that item, then
+// the Imports and Sessions lists. Rows only carry per-item actions (play,
+// download, delete); clicking a row selects it into the bar.
+//
+// The bar is the app's one transport: on the other tabs it shows (without the
+// Import button) when something plays, with the piano-roll / score panels
+// under it, and stays until closed. Something playing that has no row
+// here - a History stretch, a timeline selection - gets a stand-in item, an
+// "Unsaved session"; its piano roll and score work like a saved one's.
 // ===========================================
 
 const ioView = $('viewIO')
@@ -31,10 +37,17 @@ const ioProgressFill = $('ioProgressFill')
 const ioScorePanel = $('ioScorePanel')
 const ioScoreBody = $('ioScoreBody')
 const ioScoreTitle = $('ioScoreTitle')
+const ioToolbar = $('ioToolbar')
+const ioTransport = $('transport')        // the bar + its panels
+const ioTransportPanels = $('transportPanels')
+const ioBarClose = $('ioBarClose')
 
 // ---- Items -----------------------------------------------------------------
 // Every row in either list is an item keyed `import:<id>` or `session:<id>`.
 //   { key, kind, id, title, meta, start?, end?, rec? }
+// Stand-ins for playing clips without a row use the clip's own key (kind
+// 'unsaved': a recorded range; 'external': a file imported in another browser,
+// which this page can play the controls of but not show).
 const ioItems = new Map()
 let ioCurrentKey = null   // last selected row
 // Mirrors of the shared player (player.js), kept by the listener below:
@@ -51,6 +64,7 @@ function barKey() {
 const ioEventsCache = new Map()
 
 function ioEventsFor(item) {
+    if (item.kind === 'external') return Promise.reject(new Error('Not in this browser'))
     if (!ioEventsCache.has(item.key)) {
         const p = (item.kind === 'import'
             ? parseMidiBlob(item.rec.data, item.rec.name)
@@ -107,7 +121,63 @@ onPlaybackEvent((data) => {
     }
 })
 
+// A playing clip with no row here gets a stand-in item so the bar can show it.
+function ioStandIn(clip) {
+    if (!clip?.key || ioItems.has(clip.key)) return
+    const span = `${new Date(clip.start).toLocaleString()} · ${fmtTime(clip.end - clip.start)}`
+    const from = { history: 'From History', live: 'Timeline selection' }[clip.source]
+    ioItems.set(clip.key, clip.kind === 'range'
+        ? {
+            key: clip.key, kind: 'unsaved', start: clip.start, end: clip.end,
+            title: 'Unsaved session',
+            meta: [from, span].filter(Boolean).join(' · '),
+        }
+        : {
+            key: clip.key, kind: 'external', bounds: { start: clip.start, end: clip.end },
+            title: clip.title || 'MIDI file',
+            meta: 'Imported in another browser',
+        })
+}
+
+// Shown on Import / Export always. Elsewhere it appears when something plays
+// and stays (panels and all) until closed with its X, offered once it's over.
+let ioBarDismissed = true
+
+function updateTransportBar() {
+    const onIO = !ioView.classList.contains('hidden')
+    const idle = player.state.status === 'idle'
+    if (!idle) ioBarDismissed = false
+    const shown = onIO || !ioBarDismissed
+    const revealed = shown && ioTransport.classList.contains('hidden')
+    const resized = ioTransport.classList.contains('elsewhere') !== !onIO
+    ioToolbar.classList.toggle('elsewhere', !onIO)
+    ioTransport.classList.toggle('elsewhere', !onIO)
+    ioTransport.classList.toggle('hidden', !shown)
+    ioBarClose.classList.toggle('hidden', onIO || !idle)
+    // Panels can't be measured while hidden: size them on reveal (and when
+    // their height changes with the tab)
+    if (shown && (revealed || resized)) {
+        requestAnimationFrame(() => {
+            if (ioPreviewInstance) ioPreviewInstance.resize()
+            if (ioScoreKey) relayoutScoreView()
+        })
+    }
+}
+
+ioBarClose.addEventListener('click', () => {
+    ioBarDismissed = true
+    closeIOPreview()
+    closeIOScore()
+    updateTransportBar()
+})
+
 player.on((state, reason) => {
+    if (state.status !== 'idle') {
+        ioStandIn(state.clip)
+        // The clip knows its length before the item's events are fetched
+        const item = ioItems.get(state.clip?.key)
+        if (item && !item.bounds) item.bounds = { start: state.clip.start, end: state.clip.end }
+    }
     const key = state.status !== 'idle' && state.clip?.key
     const wasPlaying = ioPlayingKey
     ioPlayingKey = key && ioItems.has(key) ? key : null
@@ -122,13 +192,20 @@ player.on((state, reason) => {
         updateIOButtons()
         renderClock()
     }
+    // A file from another browser can't be replayed from here once it's over
+    if (!ioPlayingKey && ioItems.get(ioCurrentKey)?.kind === 'external') {
+        ioItems.delete(ioCurrentKey)
+        ioCurrentKey = null
+        renderBar()
+    }
+    updateTransportBar()
 })
 
 // ---- Playback --------------------------------------------------------------
 // Starts `key` on the shared player (from the top, or from clip time `from`).
 async function ioPlay(key, { from } = {}) {
     const item = ioItems.get(key)
-    if (!item) return
+    if (!item || item.kind === 'external') return
     ioCurrentKey = key
     if (ioPreviewInstance) ioPreviewInstance.clearHighlights()
     const clip = { title: item.title, key, source: 'io', from }
@@ -191,15 +268,17 @@ function setPlayBtn(btn, key) {
 
 function updateIOButtons() {
     const has = !!barKey()
+    const viewable = has && ioItems.get(barKey())?.kind !== 'external'
     ioPlayPauseBtn.disabled = !has
-    ioPianoBtn.disabled = !has
-    ioScoreBtn.disabled = !has
+    ioPianoBtn.disabled = !viewable
+    ioScoreBtn.disabled = !viewable
     ioStopBtn.disabled = player.state.status === 'idle'   // stops whatever is playing
     ioRepeatBtn.classList.toggle('active', player.state.loop)
     ioRepeatBtn.setAttribute('aria-pressed', String(player.state.loop))
     setPlayBtn(ioPlayPauseBtn, barKey())
     ioPianoBtn.classList.toggle('active', !ioPreview.classList.contains('hidden'))
     ioScoreBtn.classList.toggle('active', !!ioScoreKey)
+    ioTransportPanels.classList.toggle('hidden', ioPreview.classList.contains('hidden') && !ioScoreKey)
     for (const row of ioView.querySelectorAll('.io-item')) {
         row.classList.toggle('selected', row.dataset.key === ioCurrentKey)
         const btn = row.querySelector('.io-row-play')
@@ -248,7 +327,7 @@ function openIOPianoRoll(events, { title, start, end, key, scroll = true } = {})
     const evs = events || []
     const s = start ?? (evs.length ? evs[0].timestamp : 0)
     const e = end ?? (evs.length ? evs[evs.length - 1].timestamp : s + 1000)
-    if (scroll) ioView.scrollTo({ top: 0, behavior: 'smooth' })
+    if (scroll) ioTransportPanels.scrollTo({ top: 0, behavior: 'smooth' })
     requestAnimationFrame(() => {
         if (!ioPreviewInstance) return
         ioPreviewInstance.setData(evs, s, e)
@@ -473,3 +552,4 @@ ioView.addEventListener('click', async (e) => {
 })
 
 renderBar()
+updateTransportBar()

@@ -327,15 +327,18 @@ describe.skipIf(!!reason)("import/export view", () => {
 });
 
 describe.skipIf(!!reason)("shared player", () => {
-  test("stop and loop work from any tab, wherever playback started", async () => {
+  test("the transport bar follows playback onto every tab, and stops it anywhere", async () => {
     const { page, errors } = await open();
     const stops = () =>
       page.evaluate(() =>
-        ["npStop", "historyStop", "ioStop", "btnStop"].map((id) => (document.getElementById(id) as HTMLButtonElement).disabled)
+        ["historyStop", "ioStop", "btnStop"].map((id) => (document.getElementById(id) as HTMLButtonElement).disabled)
       );
-    expect(await stops()).toEqual([true, true, true, true]);
+    const barShown = () => page.isVisible("#transport");
+    expect(await stops()).toEqual([true, true, true]);
+    expect(await barShown()).toBe(false); // Live, nothing playing
 
-    // Something else (another tab, another device) starts a looping replay
+    // Something else (another tab, another device) starts a looping replay of
+    // a stretch that isn't a saved session
     const t = Date.now() - 60_000;
     await fetch(`${URL}api/playback/start`, {
       method: "POST",
@@ -352,25 +355,46 @@ describe.skipIf(!!reason)("shared player", () => {
       }),
     });
     await page.waitForTimeout(400);
-    expect(await page.textContent("#npTitle")).toBe("From elsewhere");
-    expect(await stops()).toEqual([false, false, false, false]);
+    expect(await barShown()).toBe(true);
+    expect(await page.isVisible("#btnSelectFile")).toBe(false); // Import stays on its own tab
+    expect(await page.textContent("#ioNowTitle")).toBe("Unsaved session");
+    expect(await page.textContent("#ioNowMeta")).toContain("From History");
+    expect(await stops()).toEqual([false, false, false]);
     expect(await page.isVisible("#timelinePlaying")).toBe(true);
     const lit = () =>
-      page.evaluate(() => ["npLoop", "historyLoop", "ioRepeat", "timelineLoop"].map((id) => document.getElementById(id)!.classList.contains("active")));
-    expect(await lit()).toEqual([true, true, true, true]);
+      page.evaluate(() => ["historyLoop", "ioRepeat", "timelineLoop"].map((id) => document.getElementById(id)!.classList.contains("active")));
+    expect(await lit()).toEqual([true, true, true]);
 
-    // Loop off from one tab turns it off everywhere
+    // One bar on Import / Export too, with the Import button back
     await page.click('#tabs .tab[data-view="io"]');
+    expect(await page.locator(".io-toolbar").count()).toBe(1);
+    expect(await page.isVisible("#btnSelectFile")).toBe(true);
+
+    // Loop off from one place turns it off everywhere
     await page.click("#ioRepeat");
     await page.waitForTimeout(300);
-    expect(await lit()).toEqual([false, false, false, false]);
+    expect(await lit()).toEqual([false, false, false]);
 
-    // ...and the header's Stop stops it, on whichever tab is showing
-    await page.click("#npStop");
+    // The piano roll opens under the bar right where you are
+    await page.click('#tabs .tab[data-view="history"]');
+    expect(await page.isVisible("#ioBarClose")).toBe(false); // not while playing
+    await page.click("#ioPiano");
+    await page.waitForTimeout(500);
+    expect(await page.isVisible("#viewHistory")).toBe(true);
+    expect(await page.isVisible("#ioPreview")).toBe(true);
+
+    // ...and Stop on another tab's bar stops it; the bar (and piano roll) stay
+    // until closed with the X
+    await page.click("#ioStop");
     await page.waitForTimeout(400);
     expect(await page.evaluate("player.state.status")).toBe("idle");
-    expect(await stops()).toEqual([true, true, true, true]);
+    expect(await stops()).toEqual([true, true, true]);
     expect(await page.isVisible("#timelinePlaying")).toBe(false);
+    expect(await barShown()).toBe(true);
+    expect(await page.isVisible("#ioPreview")).toBe(true);
+    await page.click("#ioBarClose");
+    expect(await barShown()).toBe(false);
+    expect(await page.isVisible("#ioPreview")).toBe(false);
     expect(errors).toEqual([]);
     await page.close();
   }, 30_000);

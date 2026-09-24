@@ -30,8 +30,11 @@ Two things need attention on an existing install:
 ### Added
 
 - **One player for every tab.** Whatever is playing, whichever tab or device
-  started it, shows in a **Now playing** strip in the header (title, time,
-  pause/resume, stop, loop), and every tab's Stop and Loop control that same
+  started it, shows in the transport bar (the Import / Export bar, now under
+  the header on every tab while something plays: title, time, pause/resume,
+  stop, loop, piano roll, score - the panels open right under it, on any tab,
+  and it stays until closed once playback is over); a History stretch or
+  timeline selection shows as an *Unsaved session*. Every tab's Stop and Loop control that same
   playback. A History replay can now be stopped from the Live or Import /
   Export tab, and History, Live and Import / Export all have loop. The server
   keeps the current clip and loops it itself (`GET /api/playback`,

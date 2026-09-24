@@ -22,14 +22,6 @@
             <button class="tab" data-view="history">History</button>
             <button class="tab" data-view="io">Import / Export</button>
         </nav>
-        <!-- Now playing: whatever is playing, wherever it was started -->
-        <div class="now-playing idle" id="nowPlaying">
-            <span class="np-title" id="npTitle"></span>
-            <span class="np-time" id="npTime"></span>
-            <button class="btn-icon" id="npPlayPause" title="Pause" disabled>&#x23F8;</button>
-            <button class="btn-icon" id="npStop" title="Stop" disabled>&#x23F9;</button>
-            <button class="btn-icon" id="npLoop" title="Loop: start over when it ends" aria-pressed="false">&#x1F501;</button>
-        </div>
         <div class="header-right">
             <div class="header-control">
                 <button class="btn-icon btn-log-toggle" id="btnToggleEventLog" title="Toggle event log window">&#x2630; Log</button>
@@ -54,6 +46,54 @@
             </div>
         </div>
     </header>
+
+    <!-- Transport (io.js): the bar - whatever is playing, and on Import / Export
+         the selected row too, plus Import - and under it the piano roll / score
+         panels for that item. Always on Import / Export; on the other tabs it
+         appears when something plays and stays until closed (the X shows once
+         playback is done). -->
+    <div class="transport" id="transport">
+        <div class="io-toolbar" id="ioToolbar">
+            <div class="io-toolbar-main">
+                <input type="file" id="midiFileInput" accept=".mid,.midi,audio/midi,audio/x-midi" hidden>
+                <button class="btn btn-primary io-import-btn" id="btnSelectFile" title="Import a .mid file">&#xFF0B; Import .mid</button>
+                <div class="io-now">
+                    <div class="io-now-title" id="ioNowTitle">Nothing selected</div>
+                    <div class="io-now-meta" id="ioNowMeta">Import a .mid file, or pick an import or session below</div>
+                </div>
+                <div class="io-transport">
+                    <button class="btn-icon" id="ioPlayPause" title="Play" disabled>&#x25B6;</button>
+                    <button class="btn-icon" id="ioStop" title="Stop" disabled>&#x23F9;</button>
+                    <button class="btn-icon" id="ioRepeat" title="Loop: start over when it ends" aria-pressed="false"><svg class="icon-loop" viewBox="0 0 24 24" aria-hidden="true"><path d="M17 2l4 4-4 4"/><path d="M3 11V10a4 4 0 0 1 4-4h14"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></svg></button>
+                    <span class="io-time" id="ioTime">0:00 / –:––</span>
+                    <button class="btn-icon" id="ioPiano" title="Piano roll" disabled>&#x1F3B9;</button>
+                    <button class="btn-icon" id="ioScore" title="Score" disabled>&#x1D11E;</button>
+                </div>
+                <button class="io-bar-close hidden" id="ioBarClose" title="Close (playback is over)">&#x2715;</button>
+            </div>
+            <div class="io-progress"><div class="io-progress-fill" id="ioProgressFill"></div></div>
+            <div id="fileInfo" class="file-info"></div>
+        </div>
+        <div class="transport-panels" id="transportPanels">
+            <!-- Piano roll of the selected item (toggled from the bar) -->
+            <div class="card io-card io-preview hidden" id="ioPreview">
+                <div class="io-preview-header">
+                    <span class="io-preview-title" id="ioPreviewTitle">Piano roll</span>
+                    <button class="btn-icon" id="ioPreviewClose" title="Close">&#x2715;</button>
+                </div>
+                <div class="io-preview-body" id="ioPreviewBody"></div>
+            </div>
+
+            <!-- Score of the selected item (toggled from the bar) -->
+            <div class="card io-card io-preview hidden" id="ioScorePanel">
+                <div class="io-preview-header">
+                    <span class="io-preview-title" id="ioScoreTitle">Score</span>
+                    <button class="btn-icon" id="ioScoreClose" title="Close">&#x2715;</button>
+                </div>
+                <div class="io-score-body" id="ioScoreBody"></div>
+            </div>
+        </div>
+    </div>
 
     <main class="view" id="viewLive">
         <div class="primary">
@@ -85,7 +125,7 @@
                         <button id="timelineRefresh" class="btn-icon" title="Reload the timeline">&#x21BB;</button>
                         <span class="timeline-playing hidden" id="timelinePlaying">
                             <button id="timelineStop" class="btn-stop-small" title="Stop (Esc)">&#x23F9;</button>
-                            <button id="timelineLoop" class="btn-icon" title="Loop: start over when it ends" aria-pressed="false">&#x1F501;</button>
+                            <button id="timelineLoop" class="btn-icon" title="Loop: start over when it ends" aria-pressed="false"><svg class="icon-loop" viewBox="0 0 24 24" aria-hidden="true"><path d="M17 2l4 4-4 4"/><path d="M3 11V10a4 4 0 0 1 4-4h14"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></svg></button>
                         </span>
                         <button id="btnPedal" class="btn-pedal" title="Sustain pedal: hold (or hold P), or click to latch. Lights when the pedal is down (on screen, from MIDI in, or in playback).">Ped.</button>
                     </div>
@@ -213,7 +253,7 @@
                     <div class="history-preview-actions">
                         <button class="btn btn-primary" id="historyPlay" disabled>&#x25B6; Play</button>
                         <button class="btn btn-stop" id="historyStop" disabled>&#x23F9; Stop</button>
-                        <button class="btn btn-secondary btn-loop" id="historyLoop" title="Loop: start over when it ends" aria-pressed="false">&#x1F501;</button>
+                        <button class="btn btn-secondary btn-loop" id="historyLoop" title="Loop: start over when it ends" aria-pressed="false"><svg class="icon-loop" viewBox="0 0 24 24" aria-hidden="true"><path d="M17 2l4 4-4 4"/><path d="M3 11V10a4 4 0 0 1 4-4h14"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></svg></button>
                         <button class="btn btn-secondary" id="historySave" disabled>&#x1F4BE; Save</button>
                     </div>
                 </div>
@@ -233,48 +273,6 @@
 
     <!-- Import / Export tab -->
     <section class="view io-view hidden" id="viewIO">
-        <!-- Transport bar: sticks under the title bar while the tab scrolls.
-             Import a file, and control whatever is selected / playing (click a
-             row below to select it). -->
-        <div class="io-toolbar" id="ioToolbar">
-            <div class="io-toolbar-main">
-                <input type="file" id="midiFileInput" accept=".mid,.midi,audio/midi,audio/x-midi" hidden>
-                <button class="btn btn-primary io-import-btn" id="btnSelectFile" title="Import a .mid file">&#xFF0B; Import .mid</button>
-                <div class="io-now">
-                    <div class="io-now-title" id="ioNowTitle">Nothing selected</div>
-                    <div class="io-now-meta" id="ioNowMeta">Import a .mid file, or pick an import or session below</div>
-                </div>
-                <div class="io-transport">
-                    <button class="btn-icon" id="ioPlayPause" title="Play" disabled>&#x25B6;</button>
-                    <button class="btn-icon" id="ioStop" title="Stop" disabled>&#x23F9;</button>
-                    <button class="btn-icon" id="ioRepeat" title="Loop: start over when it ends" aria-pressed="false">&#x1F501;</button>
-                    <span class="io-time" id="ioTime">0:00 / –:––</span>
-                    <button class="btn-icon" id="ioPiano" title="Piano roll" disabled>&#x1F3B9;</button>
-                    <button class="btn-icon" id="ioScore" title="Score" disabled>&#x1D11E;</button>
-                </div>
-            </div>
-            <div class="io-progress"><div class="io-progress-fill" id="ioProgressFill"></div></div>
-            <div id="fileInfo" class="file-info"></div>
-        </div>
-
-        <!-- Piano roll of the selected item (toggled from the bar) -->
-        <div class="card io-card io-preview hidden" id="ioPreview">
-            <div class="io-preview-header">
-                <span class="io-preview-title" id="ioPreviewTitle">Piano roll</span>
-                <button class="btn-icon" id="ioPreviewClose" title="Close">&#x2715;</button>
-            </div>
-            <div class="io-preview-body" id="ioPreviewBody"></div>
-        </div>
-
-        <!-- Score of the selected item (toggled from the bar) -->
-        <div class="card io-card io-preview hidden" id="ioScorePanel">
-            <div class="io-preview-header">
-                <span class="io-preview-title" id="ioScoreTitle">Score</span>
-                <button class="btn-icon" id="ioScoreClose" title="Close">&#x2715;</button>
-            </div>
-            <div class="io-score-body" id="ioScoreBody"></div>
-        </div>
-
         <section class="io-section">
             <h3 class="io-section-title">Imports <span class="io-section-note">kept in this browser, not on the server</span></h3>
             <div class="io-recent-list" id="ioRecentList">
