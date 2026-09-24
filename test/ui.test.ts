@@ -325,3 +325,53 @@ describe.skipIf(!!reason)("import/export view", () => {
     await page.close();
   }, 30_000);
 });
+
+describe.skipIf(!!reason)("shared player", () => {
+  test("stop and loop work from any tab, wherever playback started", async () => {
+    const { page, errors } = await open();
+    const stops = () =>
+      page.evaluate(() =>
+        ["npStop", "historyStop", "ioStop", "btnStop"].map((id) => (document.getElementById(id) as HTMLButtonElement).disabled)
+      );
+    expect(await stops()).toEqual([true, true, true, true]);
+
+    // Something else (another tab, another device) starts a looping replay
+    const t = Date.now() - 60_000;
+    await fetch(`${URL}api/playback/start`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        events: [
+          { timestamp: t, channel: 0, type: "noteon", note: 60, velocity: 90 },
+          { timestamp: t + 30_000, channel: 0, type: "noteoff", note: 60, velocity: 0 },
+        ],
+        title: "From elsewhere",
+        key: "history:x",
+        source: "history",
+        loop: true,
+      }),
+    });
+    await page.waitForTimeout(400);
+    expect(await page.textContent("#npTitle")).toBe("From elsewhere");
+    expect(await stops()).toEqual([false, false, false, false]);
+    expect(await page.isVisible("#timelinePlaying")).toBe(true);
+    const lit = () =>
+      page.evaluate(() => ["npLoop", "historyLoop", "ioRepeat", "timelineLoop"].map((id) => document.getElementById(id)!.classList.contains("active")));
+    expect(await lit()).toEqual([true, true, true, true]);
+
+    // Loop off from one tab turns it off everywhere
+    await page.click('#tabs .tab[data-view="io"]');
+    await page.click("#ioRepeat");
+    await page.waitForTimeout(300);
+    expect(await lit()).toEqual([false, false, false, false]);
+
+    // ...and the header's Stop stops it, on whichever tab is showing
+    await page.click("#npStop");
+    await page.waitForTimeout(400);
+    expect(await page.evaluate("player.state.status")).toBe("idle");
+    expect(await stops()).toEqual([true, true, true, true]);
+    expect(await page.isVisible("#timelinePlaying")).toBe(false);
+    expect(errors).toEqual([]);
+    await page.close();
+  }, 30_000);
+});

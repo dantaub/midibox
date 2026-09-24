@@ -254,6 +254,7 @@ function renderSegments() {
             </div>
         `
     }).join('')
+    markPlayingSegment()
 }
 
 segmentList.addEventListener('click', (e) => {
@@ -379,51 +380,38 @@ function updatePreviewButtons() {
     $('historySave').disabled = !hasSelection
 }
 
+const historyKey = (start, end) => `history:${start}-${end}`
+
 async function playHistorySelection() {
     if (!hist.selection) return
-    const body = {
-        start: hist.selection.start,
-        end: hist.selection.end,
-        output: outputSelect.value || undefined,
-    }
-    try {
-        $('historyStop').disabled = false
-        $('historyPlay').disabled = true
-        const res = await fetch('/api/playback/start', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body),
-        })
-        if (!res.ok) {
-            const info = await res.json().catch(() => ({}))
-            $('historyPlay').disabled = false
-            $('historyStop').disabled = true
-            alert(`Playback failed: ${info.error || res.status}`)
-        }
-    } catch (err) {
-        console.error('Playback failed:', err)
-        $('historyPlay').disabled = false
-    }
+    const { start, end } = hist.selection
+    await player.playRange({
+        start, end,
+        title: `${fmtClock(start)} – ${fmtClock(end)}`,
+        key: historyKey(start, end),
+        source: 'history',
+    })
 }
 
 $('historyPlay').addEventListener('click', playHistorySelection)
+$('historyStop').addEventListener('click', () => player.stop())
+$('historyLoop').addEventListener('click', () => player.setLoop(!player.state.loop))
 
-$('historyStop').addEventListener('click', async () => {
-    try {
-        await fetch('/api/playback/stop', { method: 'POST' })
-    } catch (err) {
-        console.error('Stop failed:', err)
-    }
+// Stop and loop follow the shared player, whatever view started the playback;
+// the stretch that's playing is marked in the list.
+player.on((state) => {
+    $('historyStop').disabled = state.status === 'idle'
+    const loopBtn = $('historyLoop')
+    loopBtn.classList.toggle('active', state.loop)
+    loopBtn.setAttribute('aria-pressed', String(state.loop))
+    markPlayingSegment()
 })
 
-// Playback status arrives over the WebSocket handled in app.js; mirror the
-// button state here so both tabs agree.
-setInterval(() => {
-    if (viewHistory.classList.contains('hidden')) return
-    const playing = timeline.isPlaying || !$('btnStop').disabled
-    $('historyStop').disabled = !playing
-    if (!playing && hist.selection) $('historyPlay').disabled = false
-}, 500)
+function markPlayingSegment() {
+    for (const item of segmentList.querySelectorAll('.segment-item')) {
+        item.classList.toggle('playing', player.isCurrent(historyKey(item.dataset.start, item.dataset.end)))
+    }
+}
 
 $('historySave').addEventListener('click', () => {
     if (!hist.selection) return

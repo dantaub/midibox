@@ -29,6 +29,15 @@ Two things need attention on an existing install:
 
 ### Added
 
+- **One player for every tab.** Whatever is playing, whichever tab or device
+  started it, shows in a **Now playing** strip in the header (title, time,
+  pause/resume, stop, loop), and every tab's Stop and Loop control that same
+  playback. A History replay can now be stopped from the Live or Import /
+  Export tab, and History, Live and Import / Export all have loop. The server
+  keeps the current clip and loops it itself (`GET /api/playback`,
+  `POST /api/playback/loop`, `POST /api/playback/seek`; clip details on every
+  `playback` message and a `state` message on connect), so a loop survives
+  the iPad sleeping and a reloaded page picks up what's playing.
 - **Sustain pedal in the Live view.** A **Ped.** button beside ▶ Live lights
   while the pedal is down (from the MIDI input, on screen, or in playback). Hold it (or hold
   **P**), or click to latch it, to sustain the on-screen keys; it sends CC 64 to
@@ -41,7 +50,7 @@ Two things need attention on an existing install:
   saving it on the server (`POST /api/midi/file/parse`; imports are kept in the
   browser), and view either as a **piano roll** that reuses the main keyboard +
   vertical timeline. A sticky transport bar holds **Import .mid** plus
-  play/pause, stop, repeat, elapsed / total time, piano roll and score for the playing
+  play/pause, stop, loop, elapsed / total time, piano roll and score for the playing
   (or selected) item, so they stay in view while the lists scroll; rows carry
   play, download and delete (click twice to confirm). The piano roll shows the
   sustain pedal: notes it holds get a faint tail and their keys stay pale green

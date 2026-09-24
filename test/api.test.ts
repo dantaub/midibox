@@ -122,6 +122,7 @@ describe("websocket", () => {
       const timer = setTimeout(() => reject(new Error("no pong")), 5000);
       ws.onopen = () => ws.send(JSON.stringify({ type: "ping" }));
       ws.onmessage = (e) => {
+        if (JSON.parse(String(e.data)).type !== "pong") return; // e.g. the playback state sent on connect
         clearTimeout(timer);
         resolve(String(e.data));
       };
@@ -140,7 +141,7 @@ describe("playback", () => {
     const messages: any[] = [];
     ws.onmessage = (e) => {
       const msg = JSON.parse(String(e.data));
-      if (msg.type === "playback") {
+      if (msg.type === "playback" && msg.status !== "state") {
         statuses.push(msg.status);
         messages.push(msg);
       }
@@ -149,9 +150,10 @@ describe("playback", () => {
       ws.onopen = resolve;
       ws.onerror = () => reject(new Error("socket error"));
     });
-    const waitFor = async (status: string) => {
-      for (let i = 0; i < 50 && !statuses.includes(status); i++) await Bun.sleep(50);
-      return statuses.includes(status);
+    const count = (status: string) => statuses.filter((s) => s === status).length;
+    const waitFor = async (status: string, times = 1) => {
+      for (let i = 0; i < 60 && count(status) < times; i++) await Bun.sleep(50);
+      return count(status) >= times;
     };
     return { ws, statuses, messages, waitFor };
   }
@@ -196,6 +198,130 @@ describe("playback", () => {
     await post("/api/playback/stop", {});
     expect(await waitFor("ended")).toBe(true);
     ws.close();
+  });
+
+  const shortEvents: MidiEvent[] = [
+    { timestamp: DAY, channel: 0, type: "noteon", note: 60, velocity: 90 },
+    { timestamp: DAY + 100, channel: 0, type: "noteoff", note: 60, velocity: 0 },
+  ];
+
+  test("a looping clip restarts itself until loop is turned off", async () => {
+    const { ws, messages, waitFor } = await watchPlayback();
+    await post("/api/playback/start", { events: shortEvents, loop: true, title: "Short", key: "test:1" });
+    expect(await waitFor("started", 3)).toBe(true);
+
+    const starts = messages.filter((m) => m.status === "started");
+    expect(starts[0].restart).toBe(false);
+    expect(starts[1].restart).toBe(true);
+    expect(starts[1].clip.id).toBeGreaterThan(starts[0].clip.id);
+    expect(starts[1].clip.key).toBe("test:1");
+    expect(messages.some((m) => m.status === "ended")).toBe(false);
+
+    await post("/api/playback/loop", { loop: false });
+    expect(await waitFor("ended")).toBe(true);
+    expect(messages.find((m) => m.status === "ended").stopped).toBe(false);
+    ws.close();
+  });
+
+  test("stop ends a looping clip", async () => {
+    const { ws, messages, waitFor } = await watchPlayback();
+    await post("/api/playback/start", { events: shortEvents, loop: true });
+    expect(await waitFor("started", 2)).toBe(true);
+    await post("/api/playback/stop", {});
+    expect(await waitFor("ended")).toBe(true);
+    expect(messages.find((m) => m.status === "ended").stopped).toBe(true);
+    await post("/api/playback/loop", { loop: false });
+    ws.close();
+  });
+
+  test("reports what's playing, and tells a new connection", async () => {
+    expect((await (await api("/api/playback")).json()).status).toBe("idle");
+
+    const { ws, waitFor } = await watchPlayback();
+    await post("/api/playback/start", { events: longEvents, title: "Long", key: "test:2", source: "history" });
+    expect(await waitFor("started")).toBe(true);
+
+    const state = await (await api("/api/playback")).json();
+    expect(state.status).toBe("playing");
+    expect(state.clip).toMatchObject({ kind: "range", title: "Long", key: "test:2", source: "history", start: DAY, end: DAY + 30_000 });
+    expect(state.position).toBeGreaterThanOrEqual(DAY);
+
+    // A page connecting now hears about it straight away
+    const late = new WebSocket(`ws://localhost:${PORT}/ws`);
+    const first = await new Promise<any>((resolve) => { late.onmessage = (e) => resolve(JSON.parse(String(e.data))) });
+    expect(first).toMatchObject({ type: "playback", status: "state", state: "playing", clip: { key: "test:2" } });
+    late.close();
+
+    await post("/api/playback/stop", {});
+    expect(await waitFor("ended")).toBe(true);
+    ws.close();
+  });
+
+  test("seek replays the current clip from a point, keeping loop and pause", async () => {
+    const { ws, messages, waitFor } = await watchPlayback();
+    await post("/api/playback/start", { events: longEvents, loop: true });
+    expect(await waitFor("started")).toBe(true);
+    await post("/api/playback/pause", {});
+    expect(await waitFor("paused")).toBe(true);
+
+    const res = await (await post("/api/playback/seek", { at: DAY + 10_000 })).json();
+    expect(res.status).toBe("paused");
+    expect(await waitFor("started", 2)).toBe(true);
+    const second = messages.filter((m) => m.status === "started")[1];
+    expect(second.from).toBe(DAY + 10_000);
+    expect(second.loop).toBe(true);
+    expect((await (await api("/api/playback")).json()).status).toBe("paused");
+
+    await post("/api/playback/stop", {});
+    expect(await waitFor("ended")).toBe(true);
+    await post("/api/playback/loop", { loop: false });
+    ws.close();
+  });
+
+  test("a looping clip with nothing to wait for still lets a stop through", async () => {
+    const { ws, messages, waitFor } = await watchPlayback();
+    // Both events due at once: a pass never sleeps
+    await post("/api/playback/start", {
+      loop: true,
+      events: [
+        { timestamp: DAY, channel: 0, type: "noteon", note: 60, velocity: 90 },
+        { timestamp: DAY, channel: 0, type: "noteon", note: 64, velocity: 90 },
+      ],
+    });
+    expect(await waitFor("started", 2)).toBe(true);
+    const res = await Promise.race([post("/api/playback/stop", {}), Bun.sleep(2000).then(() => null)]);
+    expect(res?.status).toBe(200);
+    expect(await waitFor("ended")).toBe(true);
+    expect(messages.find((m) => m.status === "ended").stopped).toBe(true);
+    await post("/api/playback/loop", { loop: false });
+    ws.close();
+  });
+
+  test("playing one file over another doesn't flash an end in between", async () => {
+    const file = () => {
+      const fd = new FormData();
+      const bytes = writeMidiFile([
+        { timestamp: 0, channel: 0, type: "noteon", note: 60, velocity: 90 },
+        { timestamp: 20_000, channel: 0, type: "noteoff", note: 60, velocity: 0 },
+      ] as MidiEvent[]);
+      fd.append("file", new File([bytes], "t.mid", { type: "audio/midi" }));
+      return fd;
+    };
+    const { ws, statuses, waitFor } = await watchPlayback();
+    await api("/api/playback/file", { method: "POST", body: file() });
+    expect(await waitFor("started")).toBe(true);
+    await api("/api/playback/file", { method: "POST", body: file() });
+    expect(await waitFor("started", 2)).toBe(true);
+    await Bun.sleep(200);
+    expect(statuses).toEqual(["started", "started"]);
+
+    await post("/api/playback/stop", {});
+    expect(await waitFor("ended")).toBe(true);
+    ws.close();
+  });
+
+  test("seek with nothing playing is refused", async () => {
+    expect((await post("/api/playback/seek", { at: 0 })).status).toBe(409);
   });
 });
 

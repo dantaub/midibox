@@ -118,16 +118,46 @@ every later note. One output is open at a time.
 
 ## Playback
 
+One clip plays at a time, whoever started it; starting another replaces it.
+The server remembers the current clip, so any client can show and control it,
+and it does the looping itself.
+
+A clip is `{id, kind, title, key, source, start, end}`: `kind` is `"range"`
+(recorded events, times in DB milliseconds) or `"file"` (a MIDI file, ms from
+0); `start`/`end` are its first and last event; `title`, `key` (the client's
+name for the item, e.g. `"session:3"`) and `source` (the view that started it)
+are whatever the starter passed. `id` changes on every start, loop pass and seek.
+
+### `GET /api/playback`
+
+`{status: "idle"|"playing"|"paused", clip|null, loop, position}`, where
+`position` is the estimated clip time now playing.
+
 ### `POST /api/playback/start`
 
 ```json
-{ "start": 1769394000000, "end": 1769394600000, "output": "/dev/snd/midiC0D0" }
+{ "start": 1769394000000, "end": 1769394600000, "output": "/dev/snd/midiC0D0",
+  "title": "Prelude", "key": "session:3", "source": "live", "from": 1769394100000, "loop": true }
 ```
 
 Replays the recorded events in that range at their original timing, to the MIDI
-output and to every WebSocket client. `output` is optional if already connected.
-Returns `{status:"playing", eventCount, duration}`. Errors (no device, no
-permission) come back as `500 {error}`.
+output and to every WebSocket client. Everything but `start`/`end` is optional:
+`output` if already connected, `from` to start partway in (the sustain pedal's
+state there is sent first), `loop` to set looping (otherwise the current setting
+stands). Older callers may send `events` (a list of recorded-style events)
+instead of `start`/`end`. Returns `{status:"playing", clip, eventCount,
+duration}`. Errors (no device, no permission) come back as `500 {error}`.
+
+### `POST /api/playback/loop`
+
+`{loop: true|false}`. Looping restarts the clip from its start each time it
+plays through (not after a stop). The setting outlasts the clip: turn it on,
+then start something. `{loop}`, plus a `playback` message with status `"loop"`.
+
+### `POST /api/playback/seek`
+
+`{at}`: play the current clip from clip time `at`, keeping loop and pause as
+they are. `409` when nothing is playing.
 
 ### `POST /api/playback/stop`
 
@@ -144,14 +174,16 @@ status.
 ### `POST /api/playback/file`
 
 `multipart/form-data` with `file` (a `.mid`, format 0 or 1) and optional
-`output`. Parses and plays it, tempo changes included; nothing is recorded.
+`output`, `title` (default: the file name), `key`, `source`, `from` and `loop`
+(`"true"`/`"false"`), as for `start`. Parses and plays it as the current clip,
+tempo changes included; nothing is recorded.
 
 ```bash
 curl -X POST localhost:4000/api/playback/file \
   -F file=@prelude.mid -F output=/dev/snd/midiC0D0
 ```
 
-Returns `{status, fileName, eventCount, duration, format, tracks}`.
+Returns `{status, clip, fileName, eventCount, duration, format, tracks}`.
 
 ## WebSocket
 
@@ -162,8 +194,8 @@ Connect to `ws://<host>:4000/ws`. Messages are JSON objects tagged by `type`.
 | Type | Payload | When |
 | ---- | ------- | ---- |
 | `midi` | `{event}` | A MIDI event was captured — this is the live feed |
-| `playback` | `{status: "started"\|"ended", totalEvents, duration}` | Playback boundaries; `"ended"` carries `stopped: true` when a stop (not the end of the events) ended it |
-| `playback-event` | `{event, progress, eventIndex, totalEvents}` | Each event as it plays |
+| `playback` | `{status, clip, loop, ...}` | Every change to the player. `status` is `"started"` (with `from`, `totalEvents`, `duration`, and `restart: true` on a loop pass), `"paused"` / `"resumed"` (with `position`), `"loop"`, `"ended"` (with `stopped: true` when a stop, not the end of the clip, ended it), or `"state"` — sent once on connect, with `state` (`"idle"\|"playing"\|"paused"`) and `position`, like `GET /api/playback` |
+| `playback-event` | `{event, clipId, position, progress, eventIndex, totalEvents}` | Each event as it plays; `position` is its clip time, `progress` 0..1 over the whole clip |
 | `output` | `{output}` | The output was connected or disconnected |
 | `input` | `{input}` | The recording input device changed |
 | `pong` | — | Reply to `ping` |

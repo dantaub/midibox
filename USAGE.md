@@ -8,7 +8,8 @@ already played.
 
 | Control | What it does |
 | ------- | ------------ |
-| **Live / History** | Switch tabs |
+| **Live / History / Import / Export** | Switch tabs |
+| **Now playing** | Whatever is playing, whichever tab (or device) started it: its name, time, ⏸/▶, ⏹ and 🔁 loop. With nothing playing only 🔁 shows, so you can turn loop on before pressing play |
 | **☰ Log** | Show or hide the floating event log; drag it by its title bar, resize from the corner |
 | **🔌 Connect Out** | Open the MIDI output so playback and clicked keys sound. Turns green and reads *Connected* with the device name; click again to disconnect |
 | **Thru** | Pass incoming notes straight back out to the output, so the keyboard plays while you record |
@@ -80,7 +81,7 @@ bounds back.
 | `↑` / `↓` (or `←` / `→`) | Pan toward the top / bottom of the view |
 | `+` / `-` | Zoom in (to the selection, if there is one) / out |
 | `Home` | Return to live |
-| `Space` | Play the selection, or stop |
+| `Space` | Play the selection, or pause / resume what's playing |
 | `Esc` | Stop playback, or clear the selection |
 
 Scroll to pan; `Ctrl`/`Shift`+scroll to zoom around the pointer.
@@ -117,15 +118,23 @@ Playback streams from the server in real time: notes light up green on the
 keyboard while a red playhead crosses the timeline. **Play** is disabled until
 something is selected.
 
-Playback is exclusive — starting one stops the last.
+Playback is exclusive — starting one stops the last. There is one player for
+the whole app (and every device connected to it): the **Now playing** strip in
+the header, the ⏹ and 🔁 that appear beside **Live** while something plays, the
+Playback panel's **Stop**, History's **Stop** and **🔁**, and the Import /
+Export bar all control the same playback, so you can stop or loop it from any
+tab, wherever it was started. Loop (🔁) plays it again from the start each time
+it ends, until you stop it; it stays on for whatever you play next until you
+turn it off. The server does the looping, so it keeps going if the iPad sleeps,
+and a page opened mid-playback picks it up.
 
 ## MIDI files
 
 The **Import / Export** tab lists imported `.mid` files (format 0 or 1, kept in
 your browser, never in the server database) and recorded sessions. A bar pinned
 to the top of the tab holds **Import .mid** and the transport for the selected
-item: its name and date, play/pause, stop, repeat (🔁: plays it again from the
-start each time it ends, until you stop it), elapsed / total time, piano roll and
+item: its name and date, play/pause, stop, loop (🔁, the same loop as in the
+header), elapsed / total time, piano roll and
 score (with the sustain pedal drawn as brackets under the bass staff). Piano roll and score open as panels under the bar, show the playing (or
 selected) item and follow along during playback. Click a row to select it. Each row also has its own play, download
 (`.mid`) and delete buttons; delete asks for a second click. Playback includes

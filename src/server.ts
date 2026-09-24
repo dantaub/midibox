@@ -1,7 +1,7 @@
 import { getRecent, getRange, createSession, listSessions, updateSessionById, deleteSessionById, getDaySummaries, getActivitySegments, getSessionsInRange, getSessionById, type MidiEvent, type Session } from "./db";
 import { writeMidiFile } from "./midi-file-write";
 import { startCapture, stopCapture, listInputs, listOutputs, openOutput, onMidiEvent, playEvent, closeOutput, sendMidiMessage, enableThru, disableThru, isThruEnabled, getThruOutput, getOutputDevice, getInputDevice, getTransportInfo, allNotesOff } from "./midi";
-import { parseMidiFile, getPlayableEvents, type MidiFileEvent } from "./midi-file";
+import { parseMidiFile, getPlayableEvents } from "./midi-file";
 
 const PORT = Number(process.env.MIDIBOX_PORT ?? process.env.PORT ?? 4000) || 4000;
 
@@ -77,6 +77,9 @@ const server = serveOrExplain({
     open(ws) {
       wsClients.add(ws as any);
       console.log(`WebSocket client connected (${wsClients.size} total)`);
+      // Catch a page that just (re)connected up on whatever is playing
+      const { status: state, ...rest } = playbackState();
+      ws.send(JSON.stringify({ type: "playback", status: "state", state, ...rest }));
     },
     close(ws) {
       wsClients.delete(ws as any);
@@ -283,30 +286,41 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
       return json({ status: "disabled" });
     }
 
-    // POST /api/playback/start
+    // GET /api/playback - what's playing (or not), for a page that just loaded
+    if (path === "/playback" && method === "GET") {
+      return json(playbackState());
+    }
+
+    // POST /api/playback/start - play recorded events [start, end] (or, for
+    // older callers, a client-supplied `events` list) as the current clip
     if (path === "/playback/start" && method === "POST") {
-      const body = await req.json();
+      const body: any = await req.json();
       const { start, end, output, events: providedEvents } = body;
 
       // Stop and silence any current playback FIRST, on its still-open output,
       // before we touch the output device below.
-      stopPlayback();
-
-      // Open output if specified
-      if (output) {
-        await openOutput(output);
-        broadcast({ type: "output", output: getOutputDevice() });
+      const handover = handOver();
+      try {
+        await useOutput(output);
+      } catch (err) {
+        handover.fail();
+        throw err;
       }
+      if (!handover.stillOurs()) return json({ status: "stopped" });
+      if (typeof body.loop === "boolean") loopEnabled = body.loop;
 
-      // Sessions are recorded in the DB and looked up by [start, end]; a
-      // parsed-but-unstored MIDI file (e.g. a recent import) has no DB rows,
-      // so its own client-side event list can be sent directly instead.
       const events: MidiEvent[] = providedEvents ?? getRange(start, end);
+      const clip = makeClip({
+        kind: "range",
+        title: optString(body.title),
+        key: optString(body.key),
+        source: optString(body.source),
+        events,
+      });
+      const from = optNumber(body.from) ?? clip.start;
+      runClip(clip, from); // plays in the background, streaming events to clients
 
-      // Start playback in background, streaming events to clients
-      playbackEvents(events, wsClients);
-      
-      return json({ status: "playing", eventCount: events.length, duration: events.length > 0 ? events[events.length - 1].timestamp - events[0].timestamp : 0 });
+      return json({ status: "playing", clip: clipMeta(current), eventCount: events.length, duration: clip.end - clip.start });
     }
 
     // POST /api/playback/stop
@@ -318,15 +332,35 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
     // POST /api/playback/pause - hold playback (silences held notes)
     if (path === "/playback/pause" && method === "POST") {
       const changed = setPlaybackPaused(true);
-      if (changed) broadcast({ type: "playback", status: "paused" });
+      if (changed) broadcastPlayback("paused", { position: playbackPosition() });
       return json({ status: "paused" });
     }
 
     // POST /api/playback/resume - continue a paused playback
     if (path === "/playback/resume" && method === "POST") {
       const changed = setPlaybackPaused(false);
-      if (changed) broadcast({ type: "playback", status: "resumed" });
+      if (changed) broadcastPlayback("resumed", { position: playbackPosition() });
       return json({ status: "resumed" });
+    }
+
+    // POST /api/playback/loop { loop } - loop the current clip (and later ones)
+    if (path === "/playback/loop" && method === "POST") {
+      const body: any = await req.json();
+      loopEnabled = !!body.loop;
+      broadcastPlayback("loop");
+      return json({ loop: loopEnabled });
+    }
+
+    // POST /api/playback/seek { at } - play the current clip from clip time `at`
+    if (path === "/playback/seek" && method === "POST") {
+      const body: any = await req.json();
+      const at = optNumber(body.at);
+      if (!current) return json({ error: "Nothing is playing" }, 409);
+      if (at == null) return json({ error: "at is required" }, 400);
+      const wasPaused = playbackPaused;
+      runClip(current, at);
+      if (wasPaused && setPlaybackPaused(true)) broadcastPlayback("paused", { position: playbackPosition() });
+      return json({ status: wasPaused ? "paused" : "playing", clip: clipMeta(current) });
     }
 
     // POST /api/midi/file/parse - parse a MIDI file to events for preview (not stored)
@@ -334,18 +368,9 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
       const formData = await req.formData();
       const file = formData.get("file") as File;
       if (!file) return json({ error: "No file provided" }, 400);
-      const midiFile = parseMidiFile(await file.arrayBuffer());
-      // Shape like recorded events (timestamp = ms from start) so the piano-roll
+      // Shaped like recorded events (timestamp = ms from start) so the piano-roll
       // and score render them the same way.
-      const events = getPlayableEvents(midiFile).map((e) => ({
-        timestamp: e.timeMs,
-        channel: e.channel,
-        type: e.type,
-        note: e.note,
-        velocity: e.velocity,
-        control: e.control,
-        value: e.value,
-      }));
+      const { midiFile, events } = fileEvents(await file.arrayBuffer());
       return json({
         fileName: file.name,
         durationMs: midiFile.durationMs,
@@ -355,38 +380,46 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
       });
     }
 
-    // POST /api/playback/file - Upload and play a MIDI file
+    // POST /api/playback/file - upload a MIDI file and play it as the current clip
+    // (form fields: file, output?, title?, key?, source?, from?, loop?)
     if (path === "/playback/file" && method === "POST") {
       const formData = await req.formData();
       const file = formData.get("file") as File;
-      const outputDevice = formData.get("output") as string;
-      
       if (!file) {
         return json({ error: "No file provided" }, 400);
       }
 
       // Stop + silence any current playback on its still-open output first.
-      stopPlayback();
-
-      // Open output if specified
-      if (outputDevice) {
-        await openOutput(outputDevice);
+      const handover = handOver();
+      let parsed: ReturnType<typeof fileEvents>;
+      try {
+        await useOutput(formData.get("output"));
+        parsed = fileEvents(await file.arrayBuffer());
+      } catch (err) {
+        handover.fail();
+        throw err;
       }
-
-      // Parse MIDI file
-      const buffer = await file.arrayBuffer();
-      const midiFile = parseMidiFile(buffer);
-      const events = getPlayableEvents(midiFile);
-
+      if (!handover.stillOurs()) return json({ status: "stopped" });
+      const loop = formData.get("loop");
+      if (loop === "true" || loop === "false") loopEnabled = loop === "true";
+      const { midiFile, events } = parsed;
       console.log(`Playing MIDI file: ${file.name}, ${events.length} events, ${Math.round(midiFile.durationMs / 1000)}s`);
 
-      // Start playback
-      playbackMidiFile(events, wsClients);
+      const clip = makeClip({
+        kind: "file",
+        title: optString(formData.get("title")) ?? file.name,
+        key: optString(formData.get("key")),
+        source: optString(formData.get("source")),
+        start: 0,
+        events,
+      });
+      runClip(clip, optNumber(formData.get("from")) ?? 0);
 
-      return json({ 
-        status: "playing", 
+      return json({
+        status: "playing",
+        clip: clipMeta(current),
         fileName: file.name,
-        eventCount: events.length, 
+        eventCount: events.length,
         duration: midiFile.durationMs,
         format: midiFile.format,
         tracks: midiFile.trackCount
@@ -486,7 +519,9 @@ async function runTimedPlayback<T>(
   playbackPaused = false;
   // Virtual clock: wall time minus time spent paused. Doesn't advance while
   // parked at the pause gate, so scheduled offsets stay aligned after resume.
-  const virtualNow = () => Date.now() - playStartWall - pausedTotalMs;
+  const virtualNow = () =>
+    Date.now() - playStartWall - pausedTotalMs - (playbackPaused ? Date.now() - pauseStartedAt : 0);
+  passClock = virtualNow;
   const lateness: number[] = [];
   let batches = 0;
   let i = 0;
@@ -544,13 +579,75 @@ async function runTimedPlayback<T>(
   }
 }
 
-function broadcastPlaybackStart(
-  clients: Set<ServerWebSocket<unknown>>,
-  totalEvents: number,
-  duration: number
-): void {
-  const msg = JSON.stringify({ type: "playback", status: "started", totalEvents, duration });
-  for (const ws of clients) ws.send(msg);
+// ---- Clip player ------------------------------------------------------------
+// One clip plays at a time, whoever started it. The server remembers what it
+// is (so every client can show and control it) and loops it itself, so a loop
+// keeps going when the page that started it sleeps or closes.
+
+interface Clip {
+  id: number;             // bumped on every pass/start, so clients can spot a restart
+  kind: "range" | "file"; // range: recorded events (DB time); file: an import (ms from 0)
+  title: string | null;
+  key: string | null;     // the client's item key, e.g. "session:3", "import:7"
+  source: string | null;  // which view started it ("live", "history", "io")
+  start: number;          // clip time of the first event (file: 0)
+  end: number;            // clip time of the last event
+  events: MidiEvent[];    // timestamp = clip time
+}
+
+let current: Clip | null = null;
+const MIN_LOOP_PASS_MS = 250;
+let clipSeq = 0;
+let loopEnabled = false;  // survives between clips: arm it, then press play
+let passFrom = 0;         // clip time the running pass started from
+let passClock: (() => number) | null = null; // ms into the running pass (paused time excluded)
+
+type ClipInit = Omit<Clip, "id" | "start" | "end"> & { start?: number };
+
+function makeClip(init: ClipInit): Clip {
+  const evs = init.events;
+  const start = init.start ?? (evs.length ? evs[0]!.timestamp : 0);
+  const end = evs.length ? Math.max(start, evs[evs.length - 1]!.timestamp) : start;
+  return { ...init, id: 0, start, end };
+}
+
+function clipMeta(clip: Clip | null) {
+  if (!clip) return null;
+  const { id, kind, title, key, source, start, end } = clip;
+  return { id, kind, title, key, source, start, end };
+}
+
+// Estimated clip-time position of what's playing, or null when idle
+function playbackPosition(): number | null {
+  if (!current) return null;
+  return Math.min(current.end, passFrom + (passClock ? passClock() : 0));
+}
+
+function playbackState() {
+  return {
+    status: !current ? "idle" : playbackPaused ? "paused" : "playing",
+    clip: clipMeta(current),
+    loop: loopEnabled,
+    position: playbackPosition(),
+  };
+}
+
+// Every playback status message carries the clip and the loop setting.
+function broadcastPlayback(status: string, extra: Record<string, unknown> = {}): void {
+  broadcast({ type: "playback", status, clip: clipMeta(current), loop: loopEnabled, ...extra });
+}
+
+// Events from `at` on, led by the sustain pedal's state at `at`, so starting
+// mid-clip inside a pedalled passage still sounds (and draws) pedalled.
+function sliceFrom(events: MidiEvent[], at: number): MidiEvent[] {
+  let pedal: MidiEvent | null = null;
+  let i = 0;
+  for (; i < events.length && events[i]!.timestamp < at; i++) {
+    const e = events[i]!;
+    if (e.type === "cc" && e.control === 64) pedal = e;
+  }
+  const rest = events.slice(i);
+  return pedal ? [{ ...pedal, timestamp: at }, ...rest] : rest;
 }
 
 // True when another playback has started since `mine` did. A plain stop
@@ -560,121 +657,131 @@ function supersededBy(mine: AbortController): boolean {
   return playbackAbortController !== null && playbackAbortController !== mine;
 }
 
-// `stopped` tells a Stop apart from playing through to the end (a client
-// repeating the item only starts it again after the latter).
-function broadcastPlaybackEnd(clients: Set<ServerWebSocket<unknown>>, stopped = false): void {
-  const msg = JSON.stringify({ type: "playback", status: "ended", stopped });
-  for (const ws of clients) ws.send(msg);
+// Stop what's playing ahead of starting something else, for a start request
+// that still has to wait (for the output, or the uploaded file). A placeholder
+// controller makes the old clip's run bow out quietly, so clients see one
+// "started" follow another instead of an "ended" flashing in between.
+// `stillOurs()` after the waits: false when a stop (or another start) came in
+// meanwhile - then the request should give up, and after a stop, clients are
+// told it ended. `fail()` hands back if the start fails.
+function handOver() {
+  stopPlayback();
+  const placeholder = new AbortController();
+  playbackAbortController = placeholder;
+  const endQuietly = () => {
+    playbackActive = false;
+    current = null;
+    broadcastPlayback("ended", { stopped: true });
+  };
+  return {
+    stillOurs(): boolean {
+      if (playbackAbortController === placeholder) return true;
+      if (playbackAbortController === null) endQuietly(); // a stop came in
+      return false;
+    },
+    fail(): void {
+      if (playbackAbortController !== placeholder) return;
+      playbackAbortController = null;
+      endQuietly();
+    },
+  };
 }
 
-// Playback of a recorded range at its original timing.
-async function playbackEvents(events: MidiEvent[], clients: Set<ServerWebSocket<unknown>>): Promise<void> {
-  if (events.length === 0) {
-    // Nothing to play (e.g. a seek landing past the last note) - still tell
-    // clients so they don't sit forever thinking playback is still active.
-    broadcastPlaybackEnd(clients);
-    return;
-  }
-
+// Play `clip` from clip time `from`, then (while loop is on) again from its
+// start, until it ends, is stopped, or another clip replaces it. Only the
+// call that's still current announces "ended" - otherwise it would clobber
+// the state of the playback that superseded it. `stopped` in that message
+// tells a stop apart from playing through to the end.
+async function runClip(clip: Clip, from: number): Promise<void> {
   stopPlayback();
+  current = clip;
   playbackActive = true;
   const myController = new AbortController();
   playbackAbortController = myController;
+  const span = Math.max(1, clip.end - clip.start);
+  let restart = false;
 
-  const startTime = events[0]!.timestamp;
-  const totalDuration = events[events.length - 1]!.timestamp - startTime;
+  for (;;) {
+    clip.id = ++clipSeq;
+    const passStart = Math.max(clip.start, Math.min(from, clip.end));
+    const slice = sliceFrom(clip.events, passStart);
+    passFrom = passStart;
+    passClock = null;
+    const passWall = Date.now();
+    broadcastPlayback("started", {
+      totalEvents: slice.length,
+      duration: clip.end - clip.start,
+      from: passStart,
+      restart,
+    });
 
-  broadcastPlaybackStart(clients, events.length, totalDuration);
+    await runTimedPlayback(
+      slice,
+      (e) => e.timestamp - passStart,
+      (e) => playEvent(e),
+      (e, index) =>
+        JSON.stringify({
+          type: "playback-event",
+          event: e,
+          clipId: clip.id,
+          position: e.timestamp,
+          progress: (e.timestamp - clip.start) / span,
+          eventIndex: index,
+          totalEvents: slice.length,
+        }),
+      wsClients
+    );
 
-  await runTimedPlayback(
-    events,
-    (e) => e.timestamp - startTime,
-    (e) => playEvent(e),
-    (e, index) =>
-      JSON.stringify({
-        type: "playback-event",
-        event: e,
-        progress: totalDuration > 0 ? (e.timestamp - startTime) / totalDuration : 1,
-        eventIndex: index,
-        totalEvents: events.length,
-      }),
-    clients
-  );
+    if (supersededBy(myController)) return;
+    if (myController.signal.aborted || !loopEnabled || slice.length === 0) break;
+    // Next pass from the top, from silence: nothing (pedal included) carries over.
+    allNotesOff();
+    // A real timer between passes: a clip whose events are all due at once
+    // would otherwise loop on microtasks alone and starve every request, stop
+    // included. And no pass repeats faster than MIN_LOOP_PASS_MS.
+    try {
+      await abortableSleep(Math.max(5, MIN_LOOP_PASS_MS - (Date.now() - passWall)));
+    } catch {
+      // stopped while waiting
+    }
+    if (supersededBy(myController)) return;
+    if (myController.signal.aborted || !loopEnabled) break;
+    from = clip.start;
+    restart = true;
+  }
 
-  // A newer seek/playback call may have superseded this one (its
-  // AbortController replaced ours) while we were unwinding from the abort.
-  // Only the call that's still current gets to clear playbackActive and
-  // announce "ended" - otherwise we'd clobber the state of the playback
-  // that superseded us and the client would see a spurious stop.
-  if (!supersededBy(myController)) {
-    playbackActive = false;
-    broadcastPlaybackEnd(clients, myController.signal.aborted);
+  const stopped = myController.signal.aborted;
+  playbackActive = false;
+  current = null;
+  passClock = null;
+  broadcastPlayback("ended", { stopped });
+}
+
+// Opens the output when the request names one.
+async function useOutput(output: unknown): Promise<void> {
+  if (typeof output === "string" && output) {
+    await openOutput(output);
+    broadcast({ type: "output", output: getOutputDevice() });
   }
 }
 
-// Translate one parsed MIDI-file event into a wire message and send it.
-function emitFileEvent(event: MidiFileEvent): void {
-  const channel = event.channel & 0x0f;
-  switch (event.type) {
-    case "noteon":
-      sendMidiMessage([0x90 | channel, event.note!, event.velocity!]);
-      break;
-    case "noteoff":
-      sendMidiMessage([0x80 | channel, event.note!, event.velocity || 0]);
-      break;
-    case "cc":
-      sendMidiMessage([0xb0 | channel, event.control!, event.value!]);
-      break;
-    case "pitchbend":
-      sendMidiMessage([0xe0 | channel, event.value! & 0x7f, (event.value! >> 7) & 0x7f]);
-      break;
-    case "program":
-      sendMidiMessage([0xc0 | channel, event.value!]);
-      break;
-  }
+// A MIDI file's playable events, shaped like recorded ones (timestamp = ms from start)
+function fileEvents(buffer: ArrayBuffer) {
+  const midiFile = parseMidiFile(buffer);
+  const events: MidiEvent[] = getPlayableEvents(midiFile).map((e) => ({
+    timestamp: e.timeMs,
+    channel: e.channel,
+    type: e.type,
+    note: e.note,
+    velocity: e.velocity,
+    control: e.control,
+    value: e.value,
+  }));
+  return { midiFile, events };
 }
 
-// Playback of a parsed MIDI file (offsets are ms from the start).
-async function playbackMidiFile(events: MidiFileEvent[], clients: Set<ServerWebSocket<unknown>>): Promise<void> {
-  if (events.length === 0) return;
-
-  stopPlayback();
-  playbackActive = true;
-  const myController = new AbortController();
-  playbackAbortController = myController;
-
-  const totalDuration = events[events.length - 1]!.timeMs;
-
-  broadcastPlaybackStart(clients, events.length, totalDuration);
-
-  await runTimedPlayback(
-    events,
-    (e) => e.timeMs,
-    emitFileEvent,
-    (e, index) =>
-      JSON.stringify({
-        type: "playback-event",
-        event: {
-          timestamp: Date.now(),
-          channel: e.channel,
-          type: e.type,
-          note: e.note,
-          velocity: e.velocity,
-          control: e.control,
-          value: e.value,
-        },
-        progress: totalDuration > 0 ? e.timeMs / totalDuration : 1,
-        eventIndex: index,
-        totalEvents: events.length,
-      }),
-    clients
-  );
-
-  if (!supersededBy(myController)) {
-    playbackActive = false;
-    broadcastPlaybackEnd(clients, myController.signal.aborted);
-  }
-}
+const optString = (v: unknown) => (typeof v === "string" && v ? v : null);
+const optNumber = (v: unknown) => (v == null || v === "" ? null : Number.isFinite(Number(v)) ? Number(v) : null);
 
 function json(data: any, status = 200): Response {
   return new Response(JSON.stringify(data), {

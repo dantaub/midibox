@@ -272,7 +272,7 @@ const timeline = {
     detachedDuration: 30 * 60 * 1000,  // time span in ms for detached/frozen mode (default 30 minutes)
     startTime: null,           // if null = live mode (end is now), if set = detached
 
-    // Playback mode (separate from live/detached)
+    // A recorded range is playing (player.js), so the playhead is drawn
     isPlaying: false,
 
     // Selection (null when no selection)
@@ -283,11 +283,8 @@ const timeline = {
     selectedSessionBounds: null,  // { x1, x2, y, rowHeight, sessionId } for hit testing
     originalSessionBounds: null,  // { start_time, end_time } to restore on cancel
 
-    // Playback position (null when not playing)
+    // Playhead of a recorded range playing (from any view; see player.js), or null
     playbackPosition: null,
-    playbackBounds: null,      // { start, end } - the time range being played
-    playbackStartedAt: null,   // Date.now() when playback started
-    playbackAnimationId: null, // requestAnimationFrame ID
 
     // Direction: false = time runs downward, true = upward
     flipped: false,
@@ -787,18 +784,14 @@ function updateSelectionUI() {
     updatePlayButtons()
 }
 
-// True between playback start/end, whatever started it. Declared here because
-// the timeline draws (and reconciles the buttons) during startup.
-let playbackActive = false
-
 function hasPlayableRange() {
     return !!timeline.selection || timeline.selectedSessionId != null
 }
 
-// Play is available only with something selected, and never mid-playback
-// (including MIDI file playback, which doesn't drive the timeline animation)
+// Play is available with something selected; mid-playback it replaces what's
+// playing, like picking another row on the other tabs.
 function updatePlayButtons() {
-    const enabled = hasPlayableRange() && !timeline.isPlaying && !playbackActive
+    const enabled = hasPlayableRange()
     btnPlayback.disabled = !enabled
     $('timelinePlaySelection').disabled = !enabled
 }
@@ -1243,18 +1236,18 @@ document.addEventListener('keydown', async (e) => {
             e.preventDefault()
             returnToLive()
             break
-        case ' ':  // Space - toggle playback
+        case ' ':  // Space - pause/resume, or play the selection
             e.preventDefault()
-            if (timeline.isPlaying) {
-                await fetch('/api/playback/stop', { method: 'POST' })
+            if (player.state.status !== 'idle') {
+                await player.toggle()
             } else if (timeline.selection || timeline.selectedSessionId != null) {
                 $('timelinePlaySelection').click()
             }
             break
         case 'Escape':
             e.preventDefault()
-            if (timeline.isPlaying) {
-                await fetch('/api/playback/stop', { method: 'POST' })
+            if (player.state.status !== 'idle') {
+                await player.stop()
             } else {
                 clearSelection()
             }
@@ -1271,68 +1264,38 @@ $('timelineClear').addEventListener('click', () => {
     clearSelection()
 })
 
-$('timelineStop').addEventListener('click', async () => {
-    try {
-        await fetch('/api/playback/stop', { method: 'POST' })
-    } catch (err) {
-        console.error('Stop failed:', err)
-    }
-})
+$('timelineStop').addEventListener('click', () => player.stop())
+$('timelineLoop').addEventListener('click', () => player.setLoop(!player.state.loop))
 
 $('timelinePlaySelection').addEventListener('click', async () => {
     // Determine what to play: manual selection or selected session
-    let playStart, playEnd
+    let clip = null
     if (timeline.selection) {
-        playStart = timeline.selection.start
-        playEnd = timeline.selection.end
+        const { start, end } = timeline.selection
+        clip = { start, end, title: 'Selection', key: `selection:${start}-${end}` }
     } else if (timeline.selectedSessionId != null) {
         const session = timeline.sessions.find(s => s.id === timeline.selectedSessionId)
         if (session) {
-            playStart = session.start_time
-            playEnd = session.end_time
+            clip = {
+                start: session.start_time,
+                end: session.end_time,
+                title: session.song_name || session.performer || `Session ${session.id}`,
+                key: `session:${session.id}`,  // the same item on Import/Export
+            }
         }
     }
-
-    if (playStart == null || playEnd == null) return
-
-    const output = outputSelect.value || undefined
+    if (!clip) return
 
     // Set view to show the selection with some padding
-    const selDuration = playEnd - playStart
+    const selDuration = clip.end - clip.start
     const padding = selDuration * 0.1
-    timeline.startTime = playStart - padding
+    timeline.startTime = clip.start - padding
     timeline.detachedDuration = selDuration + padding * 2
 
     await ensureTimelineDataCovers(getViewStart(), getViewEnd())
     updateTimeLabels()
 
-    try {
-        // Start smooth playback animation
-        startPlaybackAnimation(playStart, playEnd)
-        $('timelineStop').disabled = false
-        $('timelinePlaySelection').disabled = true
-
-        const res = await fetch('/api/playback/start', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                start: playStart,
-                end: playEnd,
-                output
-            }),
-        })
-
-        if (!res.ok) {
-            const info = await res.json().catch(() => ({}))
-            stopPlaybackAnimation()
-            $('timelineStop').disabled = true
-            updateSelectionUI()
-            drawTimeline()
-            alert(`Playback failed: ${info.error || res.status}`)
-        }
-    } catch (err) {
-        console.error('Playback failed:', err)
-    }
+    await player.playRange({ ...clip, source: 'live' })
 })
 
 $('timelineSaveNew').addEventListener('click', () => {
@@ -1365,6 +1328,15 @@ function addEventToTimeline(event) {
 
 // Initialize timeline
 window.addEventListener('resize', resizeCanvas)
+// ...and whenever the layout around it moves without the window changing size
+// (the header's Now playing strip showing up can wrap it onto a second row).
+// Hidden views measure 0; switchView sizes the canvas on reveal instead.
+if (typeof ResizeObserver !== 'undefined') {
+    new ResizeObserver(([entry]) => {
+        const { width, height } = entry.contentRect
+        if (width > 0 && height > 0) resizeCanvas()
+    }).observe(timelineContainer)
+}
 resizeCanvas()
 loadTimelineData()
 
@@ -1538,6 +1510,7 @@ function connect() {
             } else if (data.type === 'playback') {
                 handlePlaybackStatus(data)
             } else if (data.type === 'playback-event') {
+                player.handleEvent(data)
                 handlePlaybackEvent(data)
             }
         } catch (err) {
@@ -1580,55 +1553,6 @@ function handleMidiEvent(event) {
     }
 }
 
-// Smooth playback animation
-function startPlaybackAnimation(startTime, endTime) {
-    timeline.playbackBounds = { start: startTime, end: endTime }
-    timeline.playbackStartedAt = null  // Will be calibrated by first server event
-    timeline.isPlaying = true
-    timeline.playbackPosition = startTime
-
-    function animate() {
-        if (!timeline.isPlaying || !timeline.playbackBounds) return
-
-        // Only animate if we've been calibrated by server
-        if (timeline.playbackStartedAt != null) {
-            const elapsed = Date.now() - timeline.playbackStartedAt
-            const position = timeline.playbackBounds.start + elapsed
-
-            if (position >= timeline.playbackBounds.end) {
-                timeline.playbackPosition = timeline.playbackBounds.end
-            } else {
-                timeline.playbackPosition = position
-            }
-        }
-
-        drawTimeline()
-        timeline.playbackAnimationId = requestAnimationFrame(animate)
-    }
-
-    timeline.playbackAnimationId = requestAnimationFrame(animate)
-}
-
-// Calibrate playback animation based on actual event timestamp
-function calibratePlayback(eventTimestamp) {
-    if (!timeline.playbackBounds || eventTimestamp == null) return
-
-    // Calculate when playback must have started based on the event's actual timestamp
-    const elapsed = eventTimestamp - timeline.playbackBounds.start
-    timeline.playbackStartedAt = Date.now() - elapsed
-}
-
-function stopPlaybackAnimation() {
-    if (timeline.playbackAnimationId) {
-        cancelAnimationFrame(timeline.playbackAnimationId)
-        timeline.playbackAnimationId = null
-    }
-    timeline.playbackBounds = null
-    timeline.playbackStartedAt = null
-    timeline.playbackPosition = null
-    timeline.isPlaying = false
-}
-
 function setPlaybackPedal(down) {
     if (down === pedalFromPlayback) return
     pedalFromPlayback = down
@@ -1636,35 +1560,46 @@ function setPlaybackPedal(down) {
 }
 
 function handlePlaybackStatus(data) {
-    // The server lifts the pedal (CC 64 off) when playback pauses or stops,
-    // and a new playback starts from its own pedal state.
-    if (data.status !== 'resumed') setPlaybackPedal(false)
-
-    if (data.status === 'started') {
-        playbackActive = true
-        progressContainer.classList.add('active')
-        btnPlayback.disabled = true
-        btnStop.disabled = false
-        $('timelineStop').disabled = false
-        $('timelinePlaySelection').disabled = true
-    } else if (data.status === 'ended') {
-        playbackActive = false
-        stopPlaybackAnimation()
-        progressContainer.classList.remove('active')
-        btnPlayback.disabled = false
-        btnStop.disabled = true
-        $('timelineStop').disabled = true
-        updatePlayButtons()
+    // The server lifts the pedal and silences everything (CC 64 off, all notes
+    // off) whenever a pass starts, pauses or ends, so the keys follow suit.
+    if (data.status !== 'resumed' && data.status !== 'loop') {
+        setPlaybackPedal(false)
         clearPlaybackNotes()
-        progressFill.style.width = '0%'
-        progressText.textContent = 'Complete'
-        drawTimeline()
     }
+
+    player.handleStatus(data)
 
     for (const fn of playbackStatusHooks) {
         try { fn(data.status, data) } catch (err) { console.error('Playback status hook failed:', err) }
     }
 }
+
+// The Live view's side of the shared player: its buttons, the sidebar progress
+// and the timeline playhead (drawn for recorded ranges, whichever view started them).
+player.on((state, reason) => {
+    const active = state.status !== 'idle'
+    progressContainer.classList.toggle('active', active)
+    btnStop.disabled = !active
+    $('timelinePlaying').classList.toggle('hidden', !active)
+    const loopBtn = $('timelineLoop')
+    loopBtn.classList.toggle('active', state.loop)
+    loopBtn.setAttribute('aria-pressed', String(state.loop))
+    if (reason === 'ended') {
+        progressFill.style.width = '0%'
+        progressText.textContent = 'Complete'
+    }
+
+    timeline.isPlaying = active && state.clip?.kind === 'range'
+    timeline.playbackPosition = timeline.isPlaying ? player.position() : null
+    updatePlayButtons()
+    drawTimeline()
+})
+
+player.onTick((pos) => {
+    if (!timeline.isPlaying || pos == null) return
+    timeline.playbackPosition = pos
+    if (!$('viewLive').classList.contains('hidden')) drawTimeline()
+})
 
 function handlePlaybackEvent(data) {
     const event = data.event
@@ -1675,11 +1610,6 @@ function handlePlaybackEvent(data) {
     if (isNoteOn(event)) activateNote(event.note, true)
     else if (isNoteOff(event)) deactivateNote(event.note, true)
     else if (isSustainEvent(event)) setPlaybackPedal(event.value >= 64)
-
-    // Calibrate animation timing based on actual event timestamp
-    if (event.timestamp != null) {
-        calibratePlayback(event.timestamp)
-    }
 
     for (const fn of playbackEventHooks) {
         try { fn(data) } catch (err) { console.error('Playback hook failed:', err) }
@@ -1829,13 +1759,7 @@ btnPlayback.addEventListener('click', async () => {
     $('timelinePlaySelection').click()
 })
 
-btnStop.addEventListener('click', async () => {
-    try {
-        await fetch('/api/playback/stop', { method: 'POST' })
-    } catch (err) {
-        console.error('Stop failed:', err)
-    }
-})
+btnStop.addEventListener('click', () => player.stop())
 
 // Settings persistence
 function saveSettings() {

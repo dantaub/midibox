@@ -22,6 +22,14 @@
             <button class="tab" data-view="history">History</button>
             <button class="tab" data-view="io">Import / Export</button>
         </nav>
+        <!-- Now playing: whatever is playing, wherever it was started -->
+        <div class="now-playing idle" id="nowPlaying">
+            <span class="np-title" id="npTitle"></span>
+            <span class="np-time" id="npTime"></span>
+            <button class="btn-icon" id="npPlayPause" title="Pause" disabled>&#x23F8;</button>
+            <button class="btn-icon" id="npStop" title="Stop" disabled>&#x23F9;</button>
+            <button class="btn-icon" id="npLoop" title="Loop: start over when it ends" aria-pressed="false">&#x1F501;</button>
+        </div>
         <div class="header-right">
             <div class="header-control">
                 <button class="btn-icon btn-log-toggle" id="btnToggleEventLog" title="Toggle event log window">&#x2630; Log</button>
@@ -75,6 +83,10 @@
                     <div class="timeline-controls-side">
                         <button class="btn-live-toggle" id="btnLiveToggle" title="Follow live (Home)">&#x25B6; Live</button>
                         <button id="timelineRefresh" class="btn-icon" title="Reload the timeline">&#x21BB;</button>
+                        <span class="timeline-playing hidden" id="timelinePlaying">
+                            <button id="timelineStop" class="btn-stop-small" title="Stop (Esc)">&#x23F9;</button>
+                            <button id="timelineLoop" class="btn-icon" title="Loop: start over when it ends" aria-pressed="false">&#x1F501;</button>
+                        </span>
                         <button id="btnPedal" class="btn-pedal" title="Sustain pedal: hold (or hold P), or click to latch. Lights when the pedal is down (on screen, from MIDI in, or in playback).">Ped.</button>
                     </div>
 
@@ -105,7 +117,6 @@
                         <button id="timelinePanRight" class="btn-icon" title="Later (Arrow Down)">&#x2193;</button>
                         <span class="timeline-separator">|</span>
                         <button id="timelinePlaySelection" class="btn-play" title="Play selection (Space)" disabled>&#x25B6;</button>
-                        <button id="timelineStop" class="btn-stop-small" title="Stop (Esc)" disabled>&#x23F9;</button>
                         <button id="timelineSaveNew" class="btn-save" title="Save selection as session" disabled>&#x1F4BE;</button>
                         <button id="timelineClear" class="btn-icon" title="Clear selection (Esc)" disabled>&#x2715;</button>
                     </div>
@@ -202,6 +213,7 @@
                     <div class="history-preview-actions">
                         <button class="btn btn-primary" id="historyPlay" disabled>&#x25B6; Play</button>
                         <button class="btn btn-stop" id="historyStop" disabled>&#x23F9; Stop</button>
+                        <button class="btn btn-secondary btn-loop" id="historyLoop" title="Loop: start over when it ends" aria-pressed="false">&#x1F501;</button>
                         <button class="btn btn-secondary" id="historySave" disabled>&#x1F4BE; Save</button>
                     </div>
                 </div>
@@ -235,7 +247,7 @@
                 <div class="io-transport">
                     <button class="btn-icon" id="ioPlayPause" title="Play" disabled>&#x25B6;</button>
                     <button class="btn-icon" id="ioStop" title="Stop" disabled>&#x23F9;</button>
-                    <button class="btn-icon" id="ioRepeat" title="Repeat: play it again from the start when it ends" aria-pressed="false">&#x1F501;</button>
+                    <button class="btn-icon" id="ioRepeat" title="Loop: start over when it ends" aria-pressed="false">&#x1F501;</button>
                     <span class="io-time" id="ioTime">0:00 / –:––</span>
                     <button class="btn-icon" id="ioPiano" title="Piano roll" disabled>&#x1F3B9;</button>
                     <button class="btn-icon" id="ioScore" title="Score" disabled>&#x1D11E;</button>
@@ -306,6 +318,7 @@
     <script src="vendor/vexflow.js"></script>
     <script src="piano-roll.js"></script>
     <script src="imports-db.js"></script>
+    <script src="player.js"></script>
     <script src="app.js"></script>
     <script src="history.js"></script>
     <script src="score.js"></script>

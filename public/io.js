@@ -37,9 +37,9 @@ const ioScoreTitle = $('ioScoreTitle')
 //   { key, kind, id, title, meta, start?, end?, rec? }
 const ioItems = new Map()
 let ioCurrentKey = null   // last selected row
-let ioPlayingKey = null   // item the server is playing (started from this tab)
+// Mirrors of the shared player (player.js), kept by the listener below:
+let ioPlayingKey = null   // this tab's item the player has loaded (whoever started it)
 let ioPaused = false
-let ioRepeat = false      // play the item again when it ends (not when stopped)
 
 // The bar shows what's playing; otherwise the selected row.
 function barKey() {
@@ -77,22 +77,8 @@ function ioSongBounds(item, evs) {
 }
 
 // ---- Transport clock -------------------------------------------------------
-// Tracks the playback position between server updates so the bar's time,
-// progress line and the preview's playhead glide instead of stepping.
-// Only describes the playing item; song length comes from the bar item's bounds.
-const clk = {
-    segStart: 0, segEnd: 0,     // what the server is playing (moves on seek)
-    progress: 0, at: 0,         // last server progress (0..1 over seg) and when
-}
-let clkRaf = null
-
-function clkPos() {
-    const span = Math.max(1, clk.segEnd - clk.segStart)
-    let p = clk.progress
-    if (ioPlayingKey && !ioPaused) p += (performance.now() - clk.at) / span
-    return clk.segStart + Math.max(0, Math.min(1, p)) * (clk.segEnd - clk.segStart)
-}
-
+// The shared player keeps the (gliding) position; the bar's time, progress
+// line, the preview's playhead and the score's highlight follow it.
 function fmtTime(ms) {
     const s = Math.max(0, Math.round(ms / 1000))
     return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
@@ -101,136 +87,64 @@ function fmtTime(ms) {
 function renderClock() {
     const bounds = ioItems.get(barKey())?.bounds
     const total = bounds ? bounds.end - bounds.start : 0
-    const elapsed = ioPlayingKey && bounds ? clkPos() - bounds.start : 0
+    const pos = ioPlayingKey ? player.position() : null
+    const elapsed = pos != null && bounds ? pos - bounds.start : 0
     ioTimeEl.textContent = `${fmtTime(elapsed)} / ${total > 0 ? fmtTime(total) : '–:––'}`
     ioProgressFill.style.width = total > 0 ? `${Math.min(100, (elapsed / total) * 100)}%` : '0%'
-    if (ioPlayingKey && ioPreviewInstance && ioPreviewKey === ioPlayingKey) {
-        ioPreviewInstance.setPlayhead(clkPos())
+    if (pos != null && ioPreviewInstance && ioPreviewKey === ioPlayingKey) {
+        ioPreviewInstance.setPlayhead(pos)
     }
-    if (ioScoreKey) scoreHighlightAt(ioPlayingKey && ioScoreKey === ioPlayingKey ? clkPos() : -1)
+    if (ioScoreKey) scoreHighlightAt(pos != null && ioScoreKey === ioPlayingKey ? pos : -1)
 }
 
-function startClock() {
-    if (clkRaf != null) return
-    const tick = () => {
-        renderClock()
-        clkRaf = ioPlayingKey && !ioPaused ? requestAnimationFrame(tick) : null
-    }
-    clkRaf = requestAnimationFrame(tick)
-}
-
-function stopClock() {
-    if (clkRaf != null) cancelAnimationFrame(clkRaf)
-    clkRaf = null
-    renderClock()
-}
+player.onTick(() => {
+    if (ioPlayingKey) renderClock()
+})
 
 onPlaybackEvent((data) => {
-    if (!ioPlayingKey) return
-    clk.progress = data.progress
-    clk.at = performance.now()
-    if (ioPreviewInstance && ioPreviewKey === ioPlayingKey) {
+    if (ioPlayingKey && ioPreviewInstance && ioPreviewKey === ioPlayingKey) {
         ioPreviewInstance.playbackEvent(data.event)
     }
-    startClock()
 })
 
-onPlaybackStatus((status, data) => {
-    if (!ioPlayingKey) return
-    if (status === 'paused') {
-        // Freeze the estimate where it is, so the clock doesn't run on.
-        const span = Math.max(1, clk.segEnd - clk.segStart)
-        clk.progress = (clkPos() - clk.segStart) / span
-        clk.at = performance.now()
-        ioPaused = true
-        // Unlight keys first: clearHighlights also drops the playhead, and
-        // stopClock's final render puts it back where playback paused.
-        if (ioPreviewInstance) ioPreviewInstance.clearHighlights()
-        stopClock()
-    } else if (status === 'resumed') {
-        clk.at = performance.now()
-        ioPaused = false
-        startClock()
-    } else if (status === 'ended') {
-        const key = ioPlayingKey
-        ioResetPlayback()
-        if (ioRepeat && !data.stopped) ioPlay(key)
+player.on((state, reason) => {
+    const key = state.status !== 'idle' && state.clip?.key
+    const wasPlaying = ioPlayingKey
+    ioPlayingKey = key && ioItems.has(key) ? key : null
+    ioPaused = state.status === 'paused'
+    if (ioPlayingKey) ioCurrentKey = ioPlayingKey
+
+    // The server silences everything when a pass starts, pauses or ends, and
+    // the preview's keys follow; the final render puts the playhead back.
+    if (reason !== 'resumed' && reason !== 'loop' && ioPreviewInstance) ioPreviewInstance.clearHighlights()
+    if (ioPlayingKey !== wasPlaying) renderBar()
+    else {
+        updateIOButtons()
+        renderClock()
     }
-    updateIOButtons()
 })
-
-// Playback over: the bar falls back to the selected row.
-function ioResetPlayback() {
-    if (!ioPlayingKey) return
-    ioPlayingKey = null
-    ioPaused = false
-    clk.progress = 0
-    stopClock()
-    if (ioPreviewInstance) ioPreviewInstance.clearHighlights()
-    renderBar()
-}
 
 // ---- Playback --------------------------------------------------------------
+// Starts `key` on the shared player (from the top, or from clip time `from`).
 async function ioPlay(key, { from } = {}) {
     const item = ioItems.get(key)
     if (!item) return
-    try {
-        const evs = await ioEventsFor(item)
-        const song = item.bounds
-        const at = from ?? song.start
-        // Clear before starting: the first streamed events (e.g. a seek's
-        // leading pedal state) can arrive before the request resolves.
-        if (ioPreviewInstance) ioPreviewInstance.clearHighlights()
-        if (item.kind === 'import' && from == null) {
-            await playMidiBlob(item.rec.data, item.rec.name)
-        } else {
-            // Sessions are recorded in the DB, so the server slices the range
-            // itself. An import has no DB rows, so a seek sends the client-side
-            // slice of its parsed events instead.
-            const payload = item.kind === 'import'
-                ? { events: importSlice(evs, at), output: outputSelect.value || undefined }
-                : { start: Math.round(at), end: item.end, output: outputSelect.value || undefined }
-            await fetch('/api/playback/start', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload),
-            })
-        }
-        ioPlayingKey = key
-        ioCurrentKey = key
-        ioPaused = false
-        Object.assign(clk, { segStart: at, segEnd: song.end, progress: 0, at: performance.now() })
-        renderBar()
-        startClock()
-    } catch (err) {
-        console.error('Playback failed:', err)
-    }
+    ioCurrentKey = key
+    if (ioPreviewInstance) ioPreviewInstance.clearHighlights()
+    const clip = { title: item.title, key, source: 'io', from }
+    if (item.kind === 'import') await player.playFile({ ...clip, data: item.rec.data, name: item.rec.name })
+    else await player.playRange({ ...clip, start: item.start, end: item.end })
 }
 
-// Events from `at` on, led by the sustain pedal's state at `at` so a seek into
-// a pedalled passage still sounds (and lights keys) pedalled.
-function importSlice(evs, at) {
-    let pedal = null
-    for (const e of evs) {
-        if (e.timestamp >= at) break
-        if (isSustainEvent(e)) pedal = e
-    }
-    const rest = evs.filter(e => e.timestamp >= at)
-    return pedal ? [{ ...pedal, timestamp: at }, ...rest] : rest
-}
-
-async function ioStop() {
-    await fetch('/api/playback/stop', { method: 'POST' })
-    // The server only announces 'ended' if something was actually playing
-    // (an empty session never starts), so reset here too.
-    ioResetPlayback()
+function ioStop() {
+    return player.stop()
 }
 
 // Play / pause / resume for one item - shared by the bar and the row buttons.
 async function ioToggle(key) {
     if (!key) return
     if (ioPlayingKey !== key) return ioPlay(key)
-    await fetch(ioPaused ? '/api/playback/resume' : '/api/playback/pause', { method: 'POST' })
+    await player.toggle()
 }
 
 // ---- Selection and the bar -------------------------------------------------
@@ -280,7 +194,9 @@ function updateIOButtons() {
     ioPlayPauseBtn.disabled = !has
     ioPianoBtn.disabled = !has
     ioScoreBtn.disabled = !has
-    ioStopBtn.disabled = !ioPlayingKey
+    ioStopBtn.disabled = player.state.status === 'idle'   // stops whatever is playing
+    ioRepeatBtn.classList.toggle('active', player.state.loop)
+    ioRepeatBtn.setAttribute('aria-pressed', String(player.state.loop))
     setPlayBtn(ioPlayPauseBtn, barKey())
     ioPianoBtn.classList.toggle('active', !ioPreview.classList.contains('hidden'))
     ioScoreBtn.classList.toggle('active', !!ioScoreKey)
@@ -294,15 +210,7 @@ function updateIOButtons() {
 ioPlayPauseBtn.addEventListener('click', () => ioToggle(barKey()))
 ioStopBtn.addEventListener('click', ioStop)
 
-function setIORepeat(on) {
-    ioRepeat = on
-    ioRepeatBtn.classList.toggle('active', on)
-    ioRepeatBtn.setAttribute('aria-pressed', String(on))
-    ioRepeatBtn.title = on ? 'Repeat on: plays again from the start when it ends' : 'Repeat: play it again from the start when it ends'
-    try { localStorage.setItem('midibox-io-repeat', on ? '1' : '0') } catch {}
-}
-ioRepeatBtn.addEventListener('click', () => setIORepeat(!ioRepeat))
-setIORepeat(localStorage.getItem('midibox-io-repeat') === '1')
+ioRepeatBtn.addEventListener('click', () => player.setLoop(!player.state.loop))
 ioScoreBtn.addEventListener('click', () => {
     if (ioScoreKey) closeIOScore()
     else if (barKey()) openIOScoreFor(barKey(), { scroll: true })
@@ -318,7 +226,9 @@ let ioPreviewKey = null
 
 // Drag the playhead handle to jump playback elsewhere in the song.
 function seekIOPreview(t) {
-    if (ioPreviewKey) ioPlay(ioPreviewKey, { from: Math.round(t) })
+    if (!ioPreviewKey) return
+    if (ioPlayingKey === ioPreviewKey) player.seek(t)
+    else ioPlay(ioPreviewKey, { from: Math.round(t) })
 }
 
 // Also used directly by the UI tests with a raw event list.
@@ -418,14 +328,6 @@ async function parseMidiBlob(data, name) {
     const json = await res.json()
     if (json.error) throw new Error(json.error)
     return json.events || []
-}
-
-// Play raw .mid bytes on the current output.
-async function playMidiBlob(data, name) {
-    const fd = new FormData()
-    fd.append('file', new File([data], name || 'import.mid', { type: 'audio/midi' }))
-    if (outputSelect.value) fd.append('output', outputSelect.value)
-    await fetch('/api/playback/file', { method: 'POST', body: fd })
 }
 
 function rowActions(key, download) {
