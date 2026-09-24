@@ -1662,7 +1662,7 @@ function handlePlaybackStatus(data) {
     }
 
     for (const fn of playbackStatusHooks) {
-        try { fn(data.status) } catch (err) { console.error('Playback status hook failed:', err) }
+        try { fn(data.status, data) } catch (err) { console.error('Playback status hook failed:', err) }
     }
 }
 

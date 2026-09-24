@@ -41,7 +41,7 @@ Two things need attention on an existing install:
   saving it on the server (`POST /api/midi/file/parse`; imports are kept in the
   browser), and view either as a **piano roll** that reuses the main keyboard +
   vertical timeline. A sticky transport bar holds **Import .mid** plus
-  play/pause, stop, elapsed / total time, piano roll and score for the playing
+  play/pause, stop, repeat, elapsed / total time, piano roll and score for the playing
   (or selected) item, so they stay in view while the lists scroll; rows carry
   play, download and delete (click twice to confirm). The piano roll shows the
   sustain pedal: notes it holds get a faint tail and their keys stay pale green

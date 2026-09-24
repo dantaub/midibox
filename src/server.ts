@@ -560,8 +560,10 @@ function supersededBy(mine: AbortController): boolean {
   return playbackAbortController !== null && playbackAbortController !== mine;
 }
 
-function broadcastPlaybackEnd(clients: Set<ServerWebSocket<unknown>>): void {
-  const msg = JSON.stringify({ type: "playback", status: "ended" });
+// `stopped` tells a Stop apart from playing through to the end (a client
+// repeating the item only starts it again after the latter).
+function broadcastPlaybackEnd(clients: Set<ServerWebSocket<unknown>>, stopped = false): void {
+  const msg = JSON.stringify({ type: "playback", status: "ended", stopped });
   for (const ws of clients) ws.send(msg);
 }
 
@@ -606,7 +608,7 @@ async function playbackEvents(events: MidiEvent[], clients: Set<ServerWebSocket<
   // that superseded us and the client would see a spurious stop.
   if (!supersededBy(myController)) {
     playbackActive = false;
-    broadcastPlaybackEnd(clients);
+    broadcastPlaybackEnd(clients, myController.signal.aborted);
   }
 }
 
@@ -670,7 +672,7 @@ async function playbackMidiFile(events: MidiFileEvent[], clients: Set<ServerWebS
 
   if (!supersededBy(myController)) {
     playbackActive = false;
-    broadcastPlaybackEnd(clients);
+    broadcastPlaybackEnd(clients, myController.signal.aborted);
   }
 }
 

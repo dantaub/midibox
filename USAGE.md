@@ -124,7 +124,8 @@ Playback is exclusive — starting one stops the last.
 The **Import / Export** tab lists imported `.mid` files (format 0 or 1, kept in
 your browser, never in the server database) and recorded sessions. A bar pinned
 to the top of the tab holds **Import .mid** and the transport for the selected
-item: its name and date, play/pause, stop, elapsed / total time, piano roll and
+item: its name and date, play/pause, stop, repeat (🔁: plays it again from the
+start each time it ends, until you stop it), elapsed / total time, piano roll and
 score (with the sustain pedal drawn as brackets under the bass staff). Piano roll and score open as panels under the bar, show the playing (or
 selected) item and follow along during playback. Click a row to select it. Each row also has its own play, download
 (`.mid`) and delete buttons; delete asks for a second click. Playback includes

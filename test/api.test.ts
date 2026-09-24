@@ -137,9 +137,13 @@ describe("playback", () => {
   async function watchPlayback() {
     const ws = new WebSocket(`ws://localhost:${PORT}/ws`);
     const statuses: string[] = [];
+    const messages: any[] = [];
     ws.onmessage = (e) => {
       const msg = JSON.parse(String(e.data));
-      if (msg.type === "playback") statuses.push(msg.status);
+      if (msg.type === "playback") {
+        statuses.push(msg.status);
+        messages.push(msg);
+      }
     };
     await new Promise((resolve, reject) => {
       ws.onopen = resolve;
@@ -149,7 +153,7 @@ describe("playback", () => {
       for (let i = 0; i < 50 && !statuses.includes(status); i++) await Bun.sleep(50);
       return statuses.includes(status);
     };
-    return { ws, statuses, waitFor };
+    return { ws, statuses, messages, waitFor };
   }
 
   const longEvents: MidiEvent[] = [
@@ -158,12 +162,26 @@ describe("playback", () => {
   ];
 
   test("stop announces the end, so clients leave the playing state", async () => {
-    const { ws, waitFor } = await watchPlayback();
+    const { ws, messages, waitFor } = await watchPlayback();
     await post("/api/playback/start", { events: longEvents });
     expect(await waitFor("started")).toBe(true);
 
     await post("/api/playback/stop", {});
     expect(await waitFor("ended")).toBe(true);
+    expect(messages.find((m) => m.status === "ended").stopped).toBe(true);
+    ws.close();
+  });
+
+  test("playing through to the end says it wasn't stopped", async () => {
+    const { ws, messages, waitFor } = await watchPlayback();
+    await post("/api/playback/start", {
+      events: [
+        { timestamp: DAY, channel: 0, type: "noteon", note: 60, velocity: 90 },
+        { timestamp: DAY + 100, channel: 0, type: "noteoff", note: 60, velocity: 0 },
+      ],
+    });
+    expect(await waitFor("ended")).toBe(true);
+    expect(messages.find((m) => m.status === "ended").stopped).toBe(false);
     ws.close();
   });
 

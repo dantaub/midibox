@@ -162,7 +162,7 @@ Connect to `ws://<host>:4000/ws`. Messages are JSON objects tagged by `type`.
 | Type | Payload | When |
 | ---- | ------- | ---- |
 | `midi` | `{event}` | A MIDI event was captured — this is the live feed |
-| `playback` | `{status: "started"\|"ended", totalEvents, duration}` | Playback boundaries |
+| `playback` | `{status: "started"\|"ended", totalEvents, duration}` | Playback boundaries; `"ended"` carries `stopped: true` when a stop (not the end of the events) ended it |
 | `playback-event` | `{event, progress, eventIndex, totalEvents}` | Each event as it plays |
 | `output` | `{output}` | The output was connected or disconnected |
 | `input` | `{input}` | The recording input device changed |

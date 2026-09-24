@@ -23,6 +23,7 @@ const ioNowTitle = $('ioNowTitle')
 const ioNowMeta = $('ioNowMeta')
 const ioPlayPauseBtn = $('ioPlayPause')
 const ioStopBtn = $('ioStop')
+const ioRepeatBtn = $('ioRepeat')
 const ioTimeEl = $('ioTime')
 const ioPianoBtn = $('ioPiano')
 const ioScoreBtn = $('ioScore')
@@ -38,6 +39,7 @@ const ioItems = new Map()
 let ioCurrentKey = null   // last selected row
 let ioPlayingKey = null   // item the server is playing (started from this tab)
 let ioPaused = false
+let ioRepeat = false      // play the item again when it ends (not when stopped)
 
 // The bar shows what's playing; otherwise the selected row.
 function barKey() {
@@ -133,7 +135,7 @@ onPlaybackEvent((data) => {
     startClock()
 })
 
-onPlaybackStatus((status) => {
+onPlaybackStatus((status, data) => {
     if (!ioPlayingKey) return
     if (status === 'paused') {
         // Freeze the estimate where it is, so the clock doesn't run on.
@@ -150,7 +152,9 @@ onPlaybackStatus((status) => {
         ioPaused = false
         startClock()
     } else if (status === 'ended') {
+        const key = ioPlayingKey
         ioResetPlayback()
+        if (ioRepeat && !data.stopped) ioPlay(key)
     }
     updateIOButtons()
 })
@@ -289,6 +293,16 @@ function updateIOButtons() {
 
 ioPlayPauseBtn.addEventListener('click', () => ioToggle(barKey()))
 ioStopBtn.addEventListener('click', ioStop)
+
+function setIORepeat(on) {
+    ioRepeat = on
+    ioRepeatBtn.classList.toggle('active', on)
+    ioRepeatBtn.setAttribute('aria-pressed', String(on))
+    ioRepeatBtn.title = on ? 'Repeat on: plays again from the start when it ends' : 'Repeat: play it again from the start when it ends'
+    try { localStorage.setItem('midibox-io-repeat', on ? '1' : '0') } catch {}
+}
+ioRepeatBtn.addEventListener('click', () => setIORepeat(!ioRepeat))
+setIORepeat(localStorage.getItem('midibox-io-repeat') === '1')
 ioScoreBtn.addEventListener('click', () => {
     if (ioScoreKey) closeIOScore()
     else if (barKey()) openIOScoreFor(barKey(), { scroll: true })
