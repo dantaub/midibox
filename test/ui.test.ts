@@ -274,6 +274,54 @@ describe.skipIf(!!reason)("history view", () => {
   }, 30_000);
 });
 
+describe.skipIf(!!reason)("history preview", () => {
+  test("dragging across the preview selects a region; a tap or Clear clears it", async () => {
+    const { page, errors } = await open();
+    await page.click('#tabs .tab[data-view="history"]');
+    await page.waitForTimeout(300);
+    // A stretch to preview, without needing recorded MIDI in the database
+    await page.evaluate(`(() => {
+      const t = Date.now() - 60000
+      hist.selection = { start: t, end: t + 10000 }
+      hist.previewEvents = [
+        { timestamp: t, channel: 0, type: 'noteon', note: 60, velocity: 90 },
+        { timestamp: t + 9000, channel: 0, type: 'noteoff', note: 60, velocity: 0 },
+      ]
+      resizeHistoryCanvas()
+    })()`);
+    const box = (await page.locator("#historyCanvas").boundingBox())!;
+    const y = box.y + box.height / 2;
+    await page.mouse.move(box.x + box.width * 0.25, y);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width * 0.5, y, { steps: 5 });
+    await page.mouse.move(box.x + box.width * 0.75, y, { steps: 5 });
+    await page.mouse.up();
+    const region: any = await page.evaluate("hist.region");
+    const sel: any = await page.evaluate("hist.selection");
+    expect((region.start - sel.start) / 10000).toBeCloseTo(0.25, 1);
+    expect((region.end - sel.start) / 10000).toBeCloseTo(0.75, 1);
+    expect(await page.evaluate("historyRange() === hist.region")).toBe(true); // what Play / Save use
+    expect(await page.textContent("#historyPreviewInfo")).toContain("selected");
+
+    expect(await page.isEnabled("#historyClearRegion")).toBe(true);
+    await page.mouse.click(box.x + box.width * 0.9, y);
+    expect(await page.evaluate("hist.region")).toBe(null);
+    expect(await page.isDisabled("#historyClearRegion")).toBe(true); // always there, off without a selection
+
+    // ...or the Clear button does
+    await page.mouse.move(box.x + box.width * 0.3, y);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width * 0.6, y, { steps: 5 });
+    await page.mouse.up();
+    expect(await page.evaluate("hist.region")).not.toBe(null);
+    await page.click("#historyClearRegion");
+    expect(await page.evaluate("hist.region")).toBe(null);
+    expect(await page.isDisabled("#historyClearRegion")).toBe(true);
+    expect(errors).toEqual([]);
+    await page.close();
+  }, 30_000);
+});
+
 describe.skipIf(!!reason)("import/export view", () => {
   test("lists sessions with a MIDI export link", async () => {
     const base = Date.now() - 60 * 60 * 1000;

@@ -255,12 +255,17 @@
                         <button class="btn btn-stop" id="historyStop" disabled>&#x23F9; Stop</button>
                         <button class="btn btn-secondary btn-loop" id="historyLoop" title="Loop: start over when it ends" aria-pressed="false"><svg class="icon-loop" viewBox="0 0 24 24" aria-hidden="true"><path d="M17 2l4 4-4 4"/><path d="M3 11V10a4 4 0 0 1 4-4h14"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></svg></button>
                         <button class="btn btn-secondary" id="historySave" disabled>&#x1F4BE; Save</button>
+                        <button class="btn btn-secondary" id="historyClearRegion" title="Clear the selected region" disabled>&#x2715; Clear Selection</button>
                     </div>
                 </div>
+                <!-- Save the selection as a session - or, opened from a session's tag
+                     in the list, edit that session (its span is the selection) -->
                 <div class="history-save-form hidden" id="historySaveForm">
+                    <span class="history-save-label" id="historySaveLabel">New session</span>
                     <input type="text" id="historySaveSong" placeholder="Song name">
                     <input type="text" id="historySavePerformer" placeholder="Performer">
                     <button class="btn btn-primary" id="historySaveConfirm">Save session</button>
+                    <button class="btn btn-stop hidden" id="historyDeleteSession">Delete</button>
                     <button class="btn btn-secondary" id="historySaveCancel">Cancel</button>
                 </div>
                 <div class="history-canvas-wrap" id="historyCanvasWrap">

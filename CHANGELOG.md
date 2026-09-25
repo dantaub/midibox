@@ -29,6 +29,12 @@ Two things need attention on an existing install:
 
 ### Added
 
+- **Select and scrub in the History preview.** Drag across the preview to
+  select a region (edges adjustable; ✕ Clear Selection or a tap clears it);
+  Play and Save use it. What's playing from the stretch shows as a playhead
+  you can drag, or tap, to seek. A saved session's tag on a stretch opens it
+  for editing there: its span becomes the region to resize, with rename,
+  update and delete.
 - **One player for every tab.** Whatever is playing, whichever tab or device
   started it, shows in the transport bar (the Import / Export bar, now under
   the header on every tab while something plays: title, time, pause/resume,

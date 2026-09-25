@@ -1290,11 +1290,33 @@ select {
 	color: #888;
 }
 
+/* A saved session in the stretch: tap to edit it (history.js) */
 .segment-session {
+	font: inherit;
 	color: #9ec5fe;
 	background: #1e2a44;
+	border: none;
 	border-radius: 3px;
 	padding: 0 0.35rem;
+	cursor: pointer;
+}
+
+@media (hover: hover) {
+	.segment-session:hover {
+		background: #2a3a5a;
+		color: #cfe2ff;
+	}
+}
+
+.segment-session.editing {
+	background: #3b82f6;
+	color: #fff;
+}
+
+.history-save-label {
+	align-self: center;
+	font-size: 0.8rem;
+	color: #9ec5fe;
 }
 
 .segment-actions {
@@ -1366,6 +1388,11 @@ select {
 	width: 100%;
 	height: 100%;
 	display: block;
+	cursor: crosshair;
+	/* Horizontal drags select / scrub; vertical ones still scroll the page */
+	touch-action: pan-y;
+	-webkit-user-select: none;
+	user-select: none;
 }
 
 .history-preview-info {

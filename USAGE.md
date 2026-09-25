@@ -105,7 +105,14 @@ already covering it.
 
 - **Click** a stretch to preview it as a piano roll below
 - **▶** on the row, or **Play**, sends it to the output
+- **Drag across the preview** to select part of the stretch; **▶ Play** and
+  **💾 Save** then use just that part. Drag its red edges to adjust it; **✕ Clear
+  Selection** (or a tap outside it) clears it. While something in the stretch is playing, its
+  playhead shows there too: drag it, or tap anywhere, to jump playback
 - **💾 Save** turns it into a session — the quickest way to label a practice run
+- **Tap a session's tag** on a stretch (the blue label) to edit it right there:
+  its span becomes the selection (drag the edges to resize it), and the form
+  lets you rename it, **Update session**, or **Delete** it
 
 Today's list updates as you play, and the newest stretch keeps growing while you
 are in it.
