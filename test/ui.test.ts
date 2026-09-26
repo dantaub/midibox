@@ -63,7 +63,8 @@ beforeAll(async () => {
   }
 
   browser = await playwright!.chromium.launch({ executablePath: chromiumPath!, args: ["--no-sandbox"] });
-});
+  // Bun's default 5s hook timeout is too short for a cold server + Chromium on CI
+}, 60_000);
 
 afterAll(async () => {
   await browser?.close();
