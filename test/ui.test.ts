@@ -51,7 +51,9 @@ beforeAll(async () => {
     cwd: join(import.meta.dir, ".."),
     env: { ...process.env, MIDIBOX_PORT: String(PORT), MIDIBOX_DB: join(dir, "ui.db") },
     stdout: "ignore",
-    stderr: "ignore",
+    // On CI, show the server's errors: a 500 there is otherwise just a
+    // console error in the page
+    stderr: process.env.CI ? "inherit" : "ignore",
   });
   for (let i = 0; i < 100; i++) {
     try {

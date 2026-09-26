@@ -51,6 +51,16 @@ function findPort(port: any, name: string | undefined): number {
   return pickDefaultPort(names); // no name -> prefer real hardware
 }
 
+async function listPorts(kind: "Input" | "Output"): Promise<string[]> {
+  try {
+    const midi = await getRtMidi();
+    return realPorts(midi[kind].getPortNames());
+  } catch (err: any) {
+    console.warn(`Can't list MIDI ${kind.toLowerCase()}s: ${err?.message ?? err}`);
+    return [];
+  }
+}
+
 export class RtMidiTransport implements MidiTransport {
   readonly scheme = "seq";
 
@@ -64,14 +74,16 @@ export class RtMidiTransport implements MidiTransport {
   // on destroy(), and GC timing under Bun is unclear). Called on every dropdown
   // open/Refresh, that leaked a "RtMidi ... Client" per call - the phantom
   // entries this fixes.
+  //
+  // No ALSA sequencer (a container, a CI runner, snd-seq not loaded) or no
+  // loadable addon means no ports to offer, not a failed request - like
+  // rawalsa's listing with no /dev/snd. Opening a port still reports the error.
   async listInputs(): Promise<string[]> {
-    const midi = await getRtMidi();
-    return realPorts(midi.Input.getPortNames());
+    return listPorts("Input");
   }
 
   async listOutputs(): Promise<string[]> {
-    const midi = await getRtMidi();
-    return realPorts(midi.Output.getPortNames());
+    return listPorts("Output");
   }
 
   async openInput(
