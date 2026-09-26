@@ -26,6 +26,10 @@ Two things need attention on an existing install:
   of ms apart even though they arrived ~5 ms apart. Switching to WAL +
   `synchronous=NORMAL` cuts per-insert latency to sub-millisecond, so recorded
   (and therefore replayed and drawn) timing matches what was played.
+- **History preview shrinks with the window.** Once drawn wide, the preview
+  held the History tab at that width when the window narrowed, clipping it and
+  its buttons; it now follows the window down, the buttons wrap, and on phones
+  it's shorter with tighter margins.
 
 ### Added
 
@@ -34,7 +38,9 @@ Two things need attention on an existing install:
   Play and Save use it. What's playing from the stretch shows as a playhead
   you can drag, or tap, to seek. A saved session's tag on a stretch opens it
   for editing there: its span becomes the region to resize, with rename,
-  update and delete.
+  update and delete. The same tags sit on the preview itself, at each
+  session's start - tap one there to edit it too. Clicking off the session
+  leaves the edit, with a confirm first if you changed anything.
 - **One player for every tab.** Whatever is playing, whichever tab or device
   started it, shows in the transport bar (the Import / Export bar, now under
   the header on every tab while something plays: title, time, pause/resume,

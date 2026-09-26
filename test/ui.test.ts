@@ -320,6 +320,109 @@ describe.skipIf(!!reason)("history preview", () => {
     expect(errors).toEqual([]);
     await page.close();
   }, 30_000);
+
+  test("tapping a session's tag on the preview opens it for editing", async () => {
+    const { page, errors } = await open();
+    await page.click('#tabs .tab[data-view="history"]');
+    await page.waitForTimeout(300);
+    await page.evaluate(`(() => {
+      const t = Date.now() - 60000
+      hist.segments = [{ start: t, end: t + 10000, note_count: 1, avg_velocity: 90 }]
+      hist.segmentStart = t
+      hist.sessions = [{ id: 42, song_name: 'Tagged', start_time: t + 2000, end_time: t + 6000 }]
+      hist.selection = { start: t, end: t + 10000 }
+      hist.previewEvents = [
+        { timestamp: t, channel: 0, type: 'noteon', note: 60, velocity: 90 },
+        { timestamp: t + 9000, channel: 0, type: 'noteoff', note: 60, velocity: 0 },
+      ]
+      resizeHistoryCanvas()
+    })()`);
+    const tag: any = await page.evaluate("hist.sessionTags.find(tag => tag.id === 42)");
+    expect(tag).toBeTruthy();
+    const box = (await page.locator("#historyCanvas").boundingBox())!;
+    await page.mouse.click(box.x + tag.x + tag.w / 2, box.y + tag.y + tag.h / 2);
+    await page.waitForFunction("hist.editing && hist.editing.id === 42");
+    expect(await page.isVisible("#historySaveForm")).toBe(true);
+    expect(await page.inputValue("#historySaveSong")).toBe("Tagged");
+    const region: any = await page.evaluate("hist.region");
+    expect(region.end - region.start).toBe(4000); // the session's span is the selection
+
+    // The test server has no recorded MIDI, so opening the edit emptied the preview
+    const reseed = `(() => {
+      const t = hist.selection.start
+      hist.previewEvents = [
+        { timestamp: t, channel: 0, type: 'noteon', note: 60, velocity: 90 },
+        { timestamp: t + 9000, channel: 0, type: 'noteoff', note: 60, velocity: 0 },
+      ]
+      drawHistoryPreview()
+    })()`;
+    await page.evaluate(reseed);
+    const offX = box.x + box.width * 0.9; // past the session's span
+    const offY = box.y + box.height / 2;
+    let dialogs = 0;
+    page.on("dialog", () => dialogs++);
+
+    // Tapping off it, unchanged, just leaves the edit
+    await page.mouse.click(offX, offY);
+    expect(await page.evaluate("hist.editing")).toBe(null);
+    expect(await page.evaluate("hist.region")).toBe(null);
+    expect(await page.isVisible("#historySaveForm")).toBe(false);
+    expect(dialogs).toBe(0);
+
+    // Changed, it asks first: No keeps the edit, OK drops it
+    const reopen = async () => {
+      await page.evaluate("editHistorySession(42, hist.segments[0])");
+      await page.waitForFunction("hist.editing && hist.editing.id === 42");
+      await page.evaluate(reseed);
+      await page.fill("#historySaveSong", "Renamed");
+    };
+    await reopen();
+    page.once("dialog", (d: any) => d.dismiss());
+    await page.mouse.click(offX, offY);
+    expect(await page.evaluate("hist.editing && hist.editing.id")).toBe(42);
+    expect(await page.inputValue("#historySaveSong")).toBe("Renamed");
+    page.once("dialog", (d: any) => d.accept());
+    await page.mouse.click(offX, offY);
+    expect(await page.evaluate("hist.editing")).toBe(null);
+    expect(dialogs).toBe(2);
+
+    // Tapping inside its span doesn't leave it
+    await reopen();
+    await page.mouse.click(box.x + box.width * 0.4, offY);
+    expect(await page.evaluate("hist.editing && hist.editing.id")).toBe(42);
+    expect(dialogs).toBe(2);
+    expect(errors).toEqual([]);
+    await page.close();
+  }, 30_000);
+
+  test("the preview shrinks with the window", async () => {
+    const { page, errors } = await open({ width: 1400, height: 900 });
+    await page.click('#tabs .tab[data-view="history"]');
+    await page.waitForTimeout(300);
+    await page.evaluate(`(() => {
+      const t = Date.now() - 60000
+      hist.selection = { start: t, end: t + 10000 }
+      hist.previewEvents = [{ timestamp: t, channel: 0, type: 'noteon', note: 60, velocity: 90 }]
+      resizeHistoryCanvas()
+    })()`);
+    for (const width of [800, 420]) {
+      await page.setViewportSize({ width, height: 800 });
+      await page.waitForTimeout(200);
+      const sizes: any = await page.evaluate(`(() => ({
+        wrap: historyCanvasWrap.getBoundingClientRect().right,
+        canvas: historyCanvas.getBoundingClientRect().width,
+        backing: historyCanvas.width / devicePixelRatio,
+        actions: document.querySelector('.history-preview-actions').getBoundingClientRect().right,
+        page: document.documentElement.scrollWidth,
+      }))()`);
+      expect(sizes.wrap).toBeLessThanOrEqual(width);
+      expect(sizes.actions).toBeLessThanOrEqual(width);
+      expect(sizes.page).toBeLessThanOrEqual(width);
+      expect(Math.abs(sizes.backing - sizes.canvas)).toBeLessThan(2); // redrawn at the new size
+    }
+    expect(errors).toEqual([]);
+    await page.close();
+  }, 30_000);
 });
 
 describe.skipIf(!!reason)("import/export view", () => {

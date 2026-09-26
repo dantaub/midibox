@@ -112,7 +112,10 @@ already covering it.
 - **💾 Save** turns it into a session — the quickest way to label a practice run
 - **Tap a session's tag** on a stretch (the blue label) to edit it right there:
   its span becomes the selection (drag the edges to resize it), and the form
-  lets you rename it, **Update session**, or **Delete** it
+  lets you rename it, **Update session**, or **Delete** it. The same tags show
+  on the preview at each session's start, and tapping one there does the same.
+  Clicking off the session (outside its span, or on another stretch, session
+  or day) leaves the edit, asking first if you changed anything
 
 Today's list updates as you play, and the newest stretch keeps growing while you
 are in it.

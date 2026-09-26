@@ -167,7 +167,7 @@ function renderDays() {
 
 dayList.addEventListener('click', (e) => {
     const item = e.target.closest('.day-item')
-    if (item) selectDay(item.dataset.date)
+    if (item && leaveHistoryEdit()) selectDay(item.dataset.date)
 })
 
 async function selectDay(date) {
@@ -272,9 +272,11 @@ segmentList.addEventListener('click', (e) => {
 
     const tag = e.target.closest('.segment-session')
     if (tag) {
-        editHistorySession(parseInt(tag.dataset.sessionId, 10), { start, end })
+        const id = parseInt(tag.dataset.sessionId, 10)
+        if (hist.editing?.id !== id && leaveHistoryEdit()) editHistorySession(id, { start, end })
         return
     }
+    if (!leaveHistoryEdit()) return
 
     if (e.target.closest('.segment-play')) {
         selectSegment(start, end)
@@ -339,16 +341,24 @@ function resizeHistoryCanvas() {
     const rect = historyCanvasWrap.getBoundingClientRect()
     if (rect.width === 0 || rect.height === 0) return
     const dpr = window.devicePixelRatio || 1
+    // CSS stretches the canvas over the wrap; only its backing store is sized
+    // here (a px width on it would hold the layout open when the window shrinks)
     historyCanvas.width = rect.width * dpr
     historyCanvas.height = rect.height * dpr
-    historyCanvas.style.width = rect.width + 'px'
-    historyCanvas.style.height = rect.height + 'px'
     historyCtx.setTransform(1, 0, 0, 1, 0, 0)
     historyCtx.scale(dpr, dpr)
     drawHistoryPreview()
 }
 
 window.addEventListener('resize', resizeHistoryCanvas)
+// ...and when the layout around it moves without the window changing size.
+// A hidden tab measures 0; switchView sizes the canvas on reveal instead.
+if (typeof ResizeObserver !== 'undefined') {
+    new ResizeObserver(([entry]) => {
+        const { width, height } = entry.contentRect
+        if (width > 0 && height > 0) resizeHistoryCanvas()
+    }).observe(historyCanvasWrap)
+}
 
 function drawHistoryPreview() {
     const width = historyCanvasWrap.clientWidth
@@ -356,6 +366,7 @@ function drawHistoryPreview() {
     if (!width || !height) return
 
     historyCtx.clearRect(0, 0, width, height)
+    hist.sessionTags = []
 
     if (!hist.selection || hist.previewEvents.length === 0) {
         historyCtx.fillStyle = '#4a4a6a'
@@ -400,16 +411,13 @@ function drawHistoryPreview() {
         historyCtx.fillRect(x1, y, Math.max(2, x2 - x1), Math.max(1, noteHeight - 1))
     }
 
-    // Sessions already covering this stretch
-    for (const session of hist.sessions) {
-        if (session.end_time < viewStart || session.start_time > viewEnd) continue
+    // Sessions already covering this stretch (their tags go on top, below)
+    const shown = hist.sessions.filter(s => s.end_time >= viewStart && s.start_time <= viewEnd)
+    for (const session of shown) {
         const x1 = Math.max(0, ((session.start_time - viewStart) / span) * width)
         const x2 = Math.min(width, ((session.end_time - viewStart) / span) * width)
         historyCtx.fillStyle = 'rgba(59, 130, 246, 0.18)'
         historyCtx.fillRect(x1, 0, x2 - x1, height)
-        historyCtx.fillStyle = '#93c5fd'
-        historyCtx.font = '11px -apple-system, BlinkMacSystemFont, sans-serif'
-        historyCtx.fillText(session.song_name || session.performer || `Session ${session.id}`, x1 + 4, 13, Math.max(10, x2 - x1 - 8))
     }
 
     const toX = t => ((t - viewStart) / span) * width
@@ -428,6 +436,8 @@ function drawHistoryPreview() {
         historyCtx.fillRect(x2 - 1, 0, 2, height)
     }
 
+    drawSessionTags(shown, toX, width)
+
     // Playhead: whatever is playing inside this stretch, or where it's being dragged
     const at = hist.scrub ?? historyPlayhead()
     if (at != null) {
@@ -438,6 +448,55 @@ function drawHistoryPreview() {
         historyCtx.arc(x, 7, 6, 0, Math.PI * 2)
         historyCtx.fill()
     }
+}
+
+// Each session's name as a tag at its start, like its tag in the list - tap
+// one to edit that session. Tags that would overlap drop to another row. Their
+// boxes (canvas px) are kept for hit-testing.
+const TAG_HEIGHT = 16
+function drawSessionTags(sessions, toX, width) {
+    historyCtx.font = '11px -apple-system, BlinkMacSystemFont, sans-serif'
+    historyCtx.textBaseline = 'middle'
+    const rowEnds = []  // right edge of the last tag in each row
+    for (const session of sessions) {
+        const x1 = Math.max(0, toX(session.start_time))
+        const x2 = Math.min(width, toX(session.end_time))
+        const name = sessionName(session)
+        const w = Math.min(historyCtx.measureText(name).width + 10, Math.max(24, x2 - x1 - 2), width - x1)
+        let row = rowEnds.findIndex(end => end + 4 <= x1)
+        if (row === -1) row = rowEnds.length
+        rowEnds[row] = x1 + w
+        const x = x1 + 1
+        const y = 3 + row * (TAG_HEIGHT + 3)
+        const editing = hist.editing?.id === session.id
+        historyCtx.fillStyle = editing ? '#3b82f6' : '#1e2a44'
+        if (historyCtx.roundRect) {
+            historyCtx.beginPath()
+            historyCtx.roundRect(x, y, w, TAG_HEIGHT, 3)
+            historyCtx.fill()
+        } else {
+            historyCtx.fillRect(x, y, w, TAG_HEIGHT)
+        }
+        historyCtx.fillStyle = editing ? '#fff' : '#9ec5fe'
+        historyCtx.fillText(name, x + 5, y + TAG_HEIGHT / 2 + 1, w - 10)
+        hist.sessionTags.push({ id: session.id, x, y, w, h: TAG_HEIGHT })
+    }
+    historyCtx.textBaseline = 'alphabetic'
+}
+
+// The session tag under a point on the canvas (finger-sized slack on touch)
+function sessionTagAt(clientX, clientY, pointerType) {
+    const rect = historyCanvas.getBoundingClientRect()
+    const x = clientX - rect.left
+    const y = clientY - rect.top
+    const slack = pointerType === 'mouse' ? 0 : 4
+    // Last drawn is on top
+    for (let i = (hist.sessionTags || []).length - 1; i >= 0; i--) {
+        const tag = hist.sessionTags[i]
+        if (x >= tag.x - slack && x <= tag.x + tag.w + slack &&
+            y >= tag.y - slack && y <= tag.y + tag.h + slack) return tag
+    }
+    return null
 }
 
 // Position of what's playing, when it's a recording inside this stretch
@@ -492,7 +551,8 @@ historyCanvas.addEventListener('pointerdown', (e) => {
     if (near(playhead)) histDrag = { mode: 'scrub' }
     else if (hist.region && near(hist.region.start)) histDrag = { mode: 'start' }
     else if (hist.region && near(hist.region.end)) histDrag = { mode: 'end' }
-    else histDrag = { mode: 'new', from: t, x: e.clientX, moved: false }
+    // A tap on a session's tag edits it; a drag from it still selects
+    else histDrag = { mode: 'new', from: t, x: e.clientX, moved: false, tag: sessionTagAt(e.clientX, e.clientY, e.pointerType)?.id }
 
     historyCanvas.setPointerCapture(e.pointerId)
     e.preventDefault()
@@ -508,7 +568,9 @@ historyCanvas.addEventListener('pointermove', (e) => {
         if (!hist.selection || e.pointerType !== 'mouse') return
         const near = (time) => time != null && Math.abs(historyXOf(time) - e.clientX) <= HISTORY_GRAB_PX
         const edge = near(historyPlayhead()) || (hist.region && (near(hist.region.start) || near(hist.region.end)))
-        historyCanvas.style.cursor = edge ? 'ew-resize' : 'crosshair'
+        historyCanvas.style.cursor = edge ? 'ew-resize'
+            : sessionTagAt(e.clientX, e.clientY, e.pointerType) ? 'pointer'
+            : 'crosshair'
         return
     }
     const t = historyTimeAt(e.clientX)
@@ -531,6 +593,12 @@ function endHistoryDrag(e) {
     if (!histDrag) return
     const drag = histDrag
     histDrag = null
+    if (e.type !== 'pointercancel' && drag.mode === 'new' && !drag.moved && drag.tag != null) {
+        if (hist.editing?.id === drag.tag || !leaveHistoryEdit()) return
+        const segment = hist.segments.find(s => s.start === hist.segmentStart) || hist.selection
+        editHistorySession(drag.tag, { start: segment.start, end: segment.end })
+        return
+    }
     if (e.type === 'pointercancel') {
         hist.scrub = null
     } else if (drag.mode === 'scrub') {
@@ -538,10 +606,15 @@ function endHistoryDrag(e) {
         hist.scrub = null
         if (t != null) historySeek(t)
     } else if (drag.mode === 'new' && !drag.moved) {
-        // A tap: jump playback here if something in this stretch is playing,
-        // otherwise clear the region
-        if (historyPlayhead() != null) historySeek(historyTimeAt(e.clientX))
-        else hist.region = null
+        // A tap: jump playback here if something in this stretch is playing;
+        // otherwise, off the session being edited leaves the edit, and with
+        // no edit it clears the region
+        const t = historyTimeAt(e.clientX)
+        if (historyPlayhead() != null) historySeek(t)
+        else if (hist.editing) {
+            const span = hist.region || { start: hist.editing.start_time, end: hist.editing.end_time }
+            if (t < span.start || t > span.end) leaveHistoryEdit()
+        } else hist.region = null
     } else if (hist.region && hist.region.end - hist.region.start < 250) {
         hist.region = null  // too small to mean anything
     }
@@ -649,6 +722,27 @@ function closeHistorySaveForm() {
     hist.editing = null
     $('historySaveForm').classList.add('hidden')
     if (wasEditing) renderSegments()
+}
+
+// Has the session being edited been changed here (name, performer or span)?
+function historyEditChanged() {
+    const s = hist.editing
+    const r = hist.region
+    return $('historySaveSong').value !== (s.song_name || '') ||
+        $('historySavePerformer').value !== (s.performer || '') ||
+        (r != null && (r.start !== s.start_time || r.end !== s.end_time))
+}
+
+// Clicking off the session being edited leaves the edit - quietly if nothing
+// changed, otherwise only once confirmed. False: the edit stays open.
+function leaveHistoryEdit() {
+    const session = hist.editing
+    if (!session) return true
+    if (historyEditChanged() && !confirm(`Discard your changes to "${sessionName(session)}"?`)) return false
+    hist.region = null
+    closeHistorySaveForm()
+    refreshHistoryPreview()
+    return true
 }
 
 function refreshHistoryPreview() {
