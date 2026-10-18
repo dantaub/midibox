@@ -2413,6 +2413,36 @@ alignGapInput.addEventListener('input', () => {
 
 btnAlign.addEventListener('click', () => setAlignChords(!timeline.alignChords))
 
+// ===========================================
+// Musical key (header): picks which notes draw green (in key) vs red. The
+// key itself lives in piano-roll.js; every note view redraws on 'midibox:key'.
+// ===========================================
+const keyTonic = $('keyTonic')
+const keyMode = $('keyMode')
+const keyAuto = $('keyAuto')
+
+keyTonic.innerHTML = '<option value="">Off</option>' +
+    KEY_TONICS.map((name, pc) => `<option value="${pc}">${name}</option>`).join('')
+keyMode.innerHTML = Object.entries(KEY_MODES).map(([id, m]) => `<option value="${id}">${m.name}</option>`).join('')
+
+function renderKeyControls() {
+    keyTonic.value = musicalKey.tonic == null ? '' : String(musicalKey.tonic)
+    keyMode.value = musicalKey.mode
+    keyMode.disabled = musicalKey.tonic == null
+    keyAuto.checked = musicalKey.auto
+}
+
+keyTonic.addEventListener('change', () => {
+    setMusicalKey({ tonic: keyTonic.value === '' ? null : Number(keyTonic.value) })
+})
+keyMode.addEventListener('change', () => setMusicalKey({ mode: keyMode.value }))
+keyAuto.addEventListener('change', () => setMusicalKey({ auto: keyAuto.checked }))
+
+window.addEventListener('midibox:key', () => {
+    renderKeyControls()
+    drawTimeline()
+})
+
 // Zoom to selection or zoom in on center
 btnZoomIn.addEventListener('click', async () => {
     // Enter detached mode if live
@@ -2662,6 +2692,7 @@ updateDirectionControls()
 loadAlignGap()
 setAlignChords(localStorage.getItem('midibox-align-chords') === '1')
 setFullscreen(localStorage.getItem('midibox-fullscreen') === '1')
+renderKeyControls()
 connect()
 loadSessions()
 loadOutputs().then(loadOutputStatus)

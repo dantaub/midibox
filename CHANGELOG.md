@@ -33,6 +33,12 @@ Two things need attention on an existing install:
 
 ### Added
 
+- **Musical key colouring.** A Key picker in the header (tonic + mode: the
+  seven modes plus harmonic and melodic minor) colours notes in the Live
+  timeline, History preview and piano roll green when in the key, red when
+  not. Defaults to C major; "Off" restores the white/black-key colours.
+  Remembered per browser. An Auto checkbox is reserved (disabled) for
+  detecting likely keys from the notes played.
 - **Select and scrub in the History preview.** Drag across the preview to
   select a region (edges adjustable; ✕ Clear Selection or a tap clears it);
   Play and Save use it. What's playing from the stretch shows as a playhead

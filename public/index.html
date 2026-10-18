@@ -23,6 +23,15 @@
             <button class="tab" data-view="io">Import / Export</button>
         </nav>
         <div class="header-right">
+            <!-- Musical key: notes in it draw green, outside it red (piano-roll.js) -->
+            <div class="header-control key-control" title="Musical key: notes in the key show green, outside it red">
+                <span class="header-label">Key</span>
+                <select id="keyTonic"></select>
+                <select id="keyMode"></select>
+                <label class="key-auto" title="Detect likely keys from the notes played (coming soon)">
+                    <input type="checkbox" id="keyAuto" disabled> Auto
+                </label>
+            </div>
             <div class="header-control">
                 <button class="btn-icon btn-log-toggle" id="btnToggleEventLog" title="Toggle event log window">&#x2630; Log</button>
             </div>

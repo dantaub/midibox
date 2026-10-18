@@ -478,6 +478,52 @@ describe.skipIf(!!reason)("import/export view", () => {
     expect(errors).toEqual([]);
     await page.close();
   }, 30_000);
+
+  test("notes in the chosen key draw green, outside it red, and the key survives a reload", async () => {
+    const { page, errors } = await open();
+    await page.click('#tabs .tab[data-view="io"]');
+    await page.waitForTimeout(200);
+    await page.evaluate(() => {
+      const t = Date.now();
+      const events = [
+        { type: "noteon", note: 60, velocity: 0x40, timestamp: t },
+        { type: "noteon", note: 61, velocity: 0x40, timestamp: t },
+        { type: "noteoff", note: 60, velocity: 0, timestamp: t + 500 },
+        { type: "noteoff", note: 61, velocity: 0, timestamp: t + 500 },
+      ];
+      (window as any).openIOPianoRoll(events, { start: t - 50, end: t + 600, title: "Key" });
+    });
+    await page.waitForTimeout(400);
+    // "green" / "red" at the middle of each note's bar
+    const colours = () =>
+      page.evaluate(() => {
+        const c = document.querySelector("#ioPreviewBody canvas") as HTMLCanvasElement;
+        const ctx = c.getContext("2d")!;
+        const dpr = window.devicePixelRatio || 1;
+        const width = c.getBoundingClientRect().width;
+        const at = (note: number) => {
+          // @ts-expect-error - piano-roll.js global
+          const spot = noteToX(note, width);
+          const [r, g] = ctx.getImageData((spot.x + spot.w / 2) * dpr, (c.height / 2), 1, 1).data;
+          return g > r ? "green" : "red";
+        };
+        return { c: at(60), cSharp: at(61) };
+      });
+
+    expect(await page.inputValue("#keyTonic")).toBe("0");
+    expect(await colours()).toEqual({ c: "green", cSharp: "red" });
+
+    await page.selectOption("#keyTonic", "2"); // D major: C# in, C out
+    await page.waitForTimeout(100);
+    expect(await colours()).toEqual({ c: "red", cSharp: "green" });
+
+    await page.reload({ waitUntil: "networkidle" });
+    expect(await page.inputValue("#keyTonic")).toBe("2");
+    expect(await page.inputValue("#keyMode")).toBe("major");
+    expect(await page.isDisabled("#keyAuto")).toBe(true);
+    expect(errors).toEqual([]);
+    await page.close();
+  }, 30_000);
 });
 
 describe.skipIf(!!reason)("shared player", () => {

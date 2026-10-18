@@ -49,6 +49,30 @@ header {
 	color: #8a8aa8;
 }
 
+/* Musical key picker */
+.key-control select {
+	flex: none;
+	padding: 0.25rem 0.35rem;
+	font-size: 0.8rem;
+}
+
+.key-control select:disabled {
+	opacity: 0.5;
+}
+
+.key-auto {
+	display: flex;
+	align-items: center;
+	gap: 0.2rem;
+	font-size: 0.75rem;
+	color: #8a8aa8;
+	white-space: nowrap;
+}
+
+.key-auto:has(input:disabled) {
+	opacity: 0.5;
+}
+
 .btn-connect {
 	background: #1a1a2e;
 	color: #8a8aa8;
