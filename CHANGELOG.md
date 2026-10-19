@@ -39,7 +39,8 @@ Two things need attention on an existing install:
   not. Defaults to C major; "Off" restores the white/black-key colours.
   Remembered per browser. An Auto checkbox is reserved (disabled) for
   detecting likely keys from the notes played. Keys lit by playing, playback
-  or the pedal take the same green/red.
+  or the pedal take the same green/red, and keys at rest carry a very faint
+  tint of it.
 - **Select and scrub in the History preview.** Drag across the preview to
   select a region (edges adjustable; ✕ Clear Selection or a tap clears it);
   Play and Save use it. What's playing from the stretch shows as a playhead

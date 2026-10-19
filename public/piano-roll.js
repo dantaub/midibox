@@ -87,7 +87,8 @@ const musicalKey = { tonic: 0, mode: 'major', auto: false, pitchClasses: new Set
 // 'key-color-<name>' class on <html>.
 //   bars    note bars on the timeline / previews
 //   played  keys lit by playing, playback or the pedal
-const keyColoring = { bars: true, played: true }
+//   tint    a faint wash over every key at rest
+const keyColoring = { bars: true, played: true, tint: true }
 
 function setKeyColoring(changes = {}) {
     for (const name of Object.keys(keyColoring)) {

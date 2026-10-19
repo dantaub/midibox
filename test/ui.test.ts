@@ -549,6 +549,27 @@ describe.skipIf(!!reason)("import/export view", () => {
     expect(errors).toEqual([]);
     await page.close();
   }, 30_000);
+
+  test("keys at rest carry a faint tint of the key, unless it's off", async () => {
+    const { page, errors } = await open();
+    const tint = (note: number) =>
+      page.evaluate((n) => {
+        const bg = getComputedStyle(document.querySelector(`#piano [data-note="${n}"]`)!).backgroundImage;
+        return bg.includes("rgba(76, 175, 80, 0.") ? "green" : bg.includes("rgba(233, 69, 96, 0.") ? "red" : "none";
+      }, note);
+    expect([await tint(60), await tint(61)]).toEqual(["green", "red"]);
+
+    // @ts-expect-error - piano-roll.js global
+    await page.evaluate(() => setKeyColoring({ tint: false }));
+    expect([await tint(60), await tint(61)]).toEqual(["none", "none"]);
+
+    // @ts-expect-error - piano-roll.js global
+    await page.evaluate(() => setKeyColoring({ tint: true }));
+    await page.selectOption("#keyTonic", "");  // no key, no tint
+    expect([await tint(60), await tint(61)]).toEqual(["none", "none"]);
+    expect(errors).toEqual([]);
+    await page.close();
+  }, 30_000);
 });
 
 describe.skipIf(!!reason)("shared player", () => {

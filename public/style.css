@@ -652,6 +652,28 @@ select {
 	--sustain-rgb: 233, 69, 96;
 }
 
+/* Keys at rest get a very faint wash of the same colours (keyColoring.tint),
+   so the scale reads across the keyboard. Lit keys keep the rules above. */
+.key-color-tint .white-key.in-key:not(.active, .playback) {
+	background: linear-gradient(rgba(76, 175, 80, 0.1), rgba(76, 175, 80, 0.1)),
+		linear-gradient(to bottom, #fff 0%, #e8e8e8 100%);
+}
+
+.key-color-tint .white-key.out-key:not(.active, .playback) {
+	background: linear-gradient(rgba(233, 69, 96, 0.1), rgba(233, 69, 96, 0.1)),
+		linear-gradient(to bottom, #fff 0%, #e8e8e8 100%);
+}
+
+.key-color-tint .black-key.in-key:not(.active, .playback) {
+	background: linear-gradient(rgba(76, 175, 80, 0.18), rgba(76, 175, 80, 0.18)),
+		linear-gradient(to bottom, #333 0%, #000 100%);
+}
+
+.key-color-tint .black-key.out-key:not(.active, .playback) {
+	background: linear-gradient(rgba(233, 69, 96, 0.18), rgba(233, 69, 96, 0.18)),
+		linear-gradient(to bottom, #333 0%, #000 100%);
+}
+
 /* Timeline / Piano Roll */
 .timeline-card {
 	flex: 1;
