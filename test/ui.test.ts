@@ -525,7 +525,7 @@ describe.skipIf(!!reason)("import/export view", () => {
     await page.close();
   }, 30_000);
 
-  test("played keys light in the key's colours, and fall back when that's switched off", async () => {
+  test("played keys light in the key's colours, all green with no key", async () => {
     const { page, errors } = await open();
     const lit = () =>
       page.evaluate(() => {
@@ -542,10 +542,8 @@ describe.skipIf(!!reason)("import/export view", () => {
     // C major: C and D in, C# out - struck or played back alike
     expect(await lit()).toEqual({ c: "green", cSharp: "red", d: "green" });
 
-    // @ts-expect-error - piano-roll.js global
-    await page.evaluate(() => setKeyColoring({ played: false }));
-    // The old scheme: struck red, played back green
-    expect(await lit()).toEqual({ c: "red", cSharp: "red", d: "green" });
+    await page.selectOption("#keyTonic", "");
+    expect(await lit()).toEqual({ c: "green", cSharp: "green", d: "green" });
     expect(errors).toEqual([]);
     await page.close();
   }, 30_000);

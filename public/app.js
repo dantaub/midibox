@@ -53,7 +53,7 @@ function sendNoteOff(note) {
 // Three sources: the MIDI input's pedal, the on-screen Ped. button (which
 // sends CC 64 to the output, like the on-screen keys send notes), and the
 // pedal in whatever is playing back. Any one down lights the button, and keys
-// released meanwhile stay pale green ('sustained') until all are up - what
+// released meanwhile stay faintly lit ('sustained') until all are up - what
 // the synth is still sounding.
 // ===========================================
 const btnPedal = $('btnPedal')

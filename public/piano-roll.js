@@ -62,10 +62,10 @@ function buildPianoKeys(pianoEl) {
 }
 
 // Musical key: colours every note view green when the note is in the key,
-// red when it isn't. tonic is a pitch class 0..11 (0 = C), or null for no key,
-// which falls back to the old white/black-key colours. Set from the header
-// (app.js); views listen for 'midibox:key' on window and redraw.
-// auto is reserved for detecting likely keys from the notes played.
+// red when it isn't. tonic is a pitch class 0..11 (0 = C), or null for no key
+// (every note then reads as in the key). Set from the header (app.js); views
+// listen for 'midibox:key' on window and redraw. auto: key-detect.js sets the
+// key from the notes played.
 const KEY_TONICS = ['C', 'C#/Db', 'D', 'D#/Eb', 'E', 'F', 'F#/Gb', 'G', 'G#/Ab', 'A', 'A#/Bb', 'B']
 const KEY_MODES = {
     major: { name: 'Major (Ionian)', steps: [0, 2, 4, 5, 7, 9, 11] },
@@ -81,14 +81,12 @@ const KEY_MODES = {
 
 const musicalKey = { tonic: 0, mode: 'major', auto: false, pitchClasses: new Set() }
 
-// Which parts of the UI follow the key, each switchable on its own (for a
-// settings panel: call setKeyColoring({ played: false }) and everything
-// follows). Canvas views read these when drawing; CSS follows the matching
-// 'key-color-<name>' class on <html>.
-//   bars    note bars on the timeline / previews
-//   played  keys lit by playing, playback or the pedal
+// Optional extras of the key colouring, for a settings panel: call
+// setKeyColoring({ tint: false }) and everything follows. Canvas views read
+// these when drawing; CSS follows the matching 'key-color-<name>' class on
+// <html>.
 //   tint    a faint wash over every key at rest
-const keyColoring = { bars: true, played: true, tint: true }
+const keyColoring = { tint: true }
 
 function setKeyColoring(changes = {}) {
     for (const name of Object.keys(keyColoring)) {
@@ -99,11 +97,15 @@ function setKeyColoring(changes = {}) {
     window.dispatchEvent(new Event('midibox:key'))
 }
 
+function isInKey(note) {
+    return musicalKey.tonic == null || musicalKey.pitchClasses.has(note % 12)
+}
+
 // Mark key elements 'in-key' / 'out-key' (neither when no key is set).
 function markKeyElements(els) {
     const on = musicalKey.tonic != null
     for (const el of els) {
-        const inKey = musicalKey.pitchClasses.has(Number(el.dataset.note) % 12)
+        const inKey = isInKey(Number(el.dataset.note))
         el.classList.toggle('in-key', on && inKey)
         el.classList.toggle('out-key', on && !inKey)
     }
@@ -124,11 +126,7 @@ function setMusicalKey({ tonic, mode, auto } = {}) {
 
 // Colour for a note bar: hsla string at the given lightness (%) and alpha.
 function noteColor(note, lightness, alpha = 1) {
-    if (musicalKey.tonic == null || !keyColoring.bars) {
-        const isBlack = [1, 3, 6, 8, 10].includes(note % 12)
-        return isBlack ? `hsla(340, 80%, ${lightness}%, ${alpha})` : `hsla(160, 70%, ${lightness}%, ${alpha})`
-    }
-    return musicalKey.pitchClasses.has(note % 12)
+    return isInKey(note)
         ? `hsla(140, 70%, ${lightness}%, ${alpha})`
         : `hsla(0, 80%, ${lightness}%, ${alpha})`
 }
