@@ -53,7 +53,7 @@ function sendNoteOff(note) {
 // Three sources: the MIDI input's pedal, the on-screen Ped. button (which
 // sends CC 64 to the output, like the on-screen keys send notes), and the
 // pedal in whatever is playing back. Any one down lights the button, and keys
-// released meanwhile stay pale green ('sustained') until all are up - what
+// released meanwhile stay faintly lit ('sustained') until all are up - what
 // the synth is still sounding.
 // ===========================================
 const btnPedal = $('btnPedal')
@@ -2413,6 +2413,87 @@ alignGapInput.addEventListener('input', () => {
 
 btnAlign.addEventListener('click', () => setAlignChords(!timeline.alignChords))
 
+// ===========================================
+// Musical key (header): picks which notes draw green (in key) vs red. The
+// key itself lives in piano-roll.js; every note view redraws on 'midibox:key'.
+// ===========================================
+const keyTonic = $('keyTonic')
+const keyMode = $('keyMode')
+const keyAuto = $('keyAuto')
+
+keyTonic.innerHTML = '<option value="">Off</option>' +
+    KEY_TONICS.map((name, pc) => `<option value="${pc}">${name}</option>`).join('')
+keyMode.innerHTML = Object.entries(KEY_MODES).map(([id, m]) => `<option value="${id}">${m.name}</option>`).join('')
+
+// The detected key (key-detect.js) shows beside the live update rate, where
+// it stays in view in fullscreen (no header there). It's a menu: its face
+// shows the guess; picking one of the likeliest keys sets the key, Reset
+// forgets the notes so far, and the key with them, and follows what's played
+// next (Auto on), Stop stops following.
+const keyReadout = $('keyReadout')
+const KEY_READOUT_CHOICES = 3
+
+function renderKeyControls() {
+    keyTonic.value = musicalKey.tonic == null ? '' : String(musicalKey.tonic)
+    keyMode.value = musicalKey.mode
+    keyMode.disabled = musicalKey.tonic == null
+    keyAuto.checked = musicalKey.auto
+}
+
+function renderKeyReadout() {
+    const best = typeof keyDetect === 'undefined' ? null : keyDetect.best
+    const choices = best ? keyDetect.candidates.slice(0, KEY_READOUT_CHOICES) : []
+    const html = `<option value="" hidden>\u266A ${best ? keySymbol(best) : '\u2013'}</option>`
+        + (choices.length
+            ? choices.map(k => `<option value="${k.tonic}:${k.mode}">${keyLabel(k)}</option>`).join('')
+            : '<option disabled>Play a few more notes</option>')
+        + '<option value="reset">Reset</option>'
+        + (musicalKey.auto ? '<option value="stop">Stop</option>' : '')
+    // Rebuilt only on a change, so an open menu isn't redrawn under the finger
+    if (html !== keyReadout.dataset.html) {
+        keyReadout.innerHTML = html
+        keyReadout.dataset.html = html
+    }
+    keyReadout.value = ''
+    keyReadout.classList.toggle('active', musicalKey.auto)
+    keyReadout.title = (best ? `Detected key (likeliest: ${choices.map(k => `${keyLabel(k)} ${k.score.toFixed(2)}`).join(', ')})` : 'Detected key: play a few more notes')
+        + (musicalKey.auto ? ' - the key follows it' : '')
+}
+
+function setKeyAuto(on) {
+    setMusicalKey({ auto: on })
+    if (on) applyDetectedKey()
+}
+
+// Picking a key by hand stops following the detected one
+keyTonic.addEventListener('change', () => {
+    setMusicalKey({ tonic: keyTonic.value === '' ? null : Number(keyTonic.value), auto: false })
+})
+keyMode.addEventListener('change', () => setMusicalKey({ mode: keyMode.value, auto: false }))
+keyAuto.addEventListener('change', () => setKeyAuto(keyAuto.checked))
+keyReadout.addEventListener('change', () => {
+    const choice = keyReadout.value
+    if (choice === 'reset') {
+        // The key came from the old notes too: none (all green) until the
+        // notes played from here give a new guess
+        resetKeyDetection()
+        setMusicalKey({ tonic: null, auto: true })
+    } else if (choice === 'stop') {
+        setKeyAuto(false)
+    } else if (choice) {
+        const [tonic, mode] = choice.split(':')
+        setMusicalKey({ tonic: Number(tonic), mode, auto: false })
+    }
+    renderKeyReadout()
+})
+
+window.addEventListener('midibox:key', () => {
+    renderKeyControls()
+    renderKeyReadout()
+    drawTimeline()
+})
+window.addEventListener('midibox:keydetect', renderKeyReadout)
+
 // Zoom to selection or zoom in on center
 btnZoomIn.addEventListener('click', async () => {
     // Enter detached mode if live
@@ -2662,6 +2743,8 @@ updateDirectionControls()
 loadAlignGap()
 setAlignChords(localStorage.getItem('midibox-align-chords') === '1')
 setFullscreen(localStorage.getItem('midibox-fullscreen') === '1')
+renderKeyControls()
+renderKeyReadout()
 connect()
 loadSessions()
 loadOutputs().then(loadOutputStatus)

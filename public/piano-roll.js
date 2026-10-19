@@ -57,7 +57,91 @@ function buildPianoKeys(pianoEl) {
         keys[note] = key
         pianoEl.appendChild(key)
     }
+    markKeyElements(Object.values(keys))
     return keys
+}
+
+// Musical key: colours every note view green when the note is in the key,
+// red when it isn't. tonic is a pitch class 0..11 (0 = C), or null for no key
+// (every note then reads as in the key). Set from the header (app.js); views
+// listen for 'midibox:key' on window and redraw. auto: key-detect.js sets the
+// key from the notes played.
+const KEY_TONICS = ['C', 'C#/Db', 'D', 'D#/Eb', 'E', 'F', 'F#/Gb', 'G', 'G#/Ab', 'A', 'A#/Bb', 'B']
+const KEY_MODES = {
+    major: { name: 'Major (Ionian)', steps: [0, 2, 4, 5, 7, 9, 11] },
+    minor: { name: 'Minor (Aeolian)', steps: [0, 2, 3, 5, 7, 8, 10] },
+    dorian: { name: 'Dorian', steps: [0, 2, 3, 5, 7, 9, 10] },
+    phrygian: { name: 'Phrygian', steps: [0, 1, 3, 5, 7, 8, 10] },
+    lydian: { name: 'Lydian', steps: [0, 2, 4, 6, 7, 9, 11] },
+    mixolydian: { name: 'Mixolydian', steps: [0, 2, 4, 5, 7, 9, 10] },
+    locrian: { name: 'Locrian', steps: [0, 1, 3, 5, 6, 8, 10] },
+    harmonicMinor: { name: 'Harmonic minor', steps: [0, 2, 3, 5, 7, 8, 11] },
+    melodicMinor: { name: 'Melodic minor', steps: [0, 2, 3, 5, 7, 9, 11] },
+}
+
+const musicalKey = { tonic: 0, mode: 'major', auto: false, pitchClasses: new Set() }
+
+// Optional extras of the key colouring, for a settings panel: call
+// setKeyColoring({ tint: false }) and everything follows. Canvas views read
+// these when drawing; CSS follows the matching 'key-color-<name>' class on
+// <html>.
+//   tint    a faint wash over every key at rest
+const keyColoring = { tint: true }
+
+function setKeyColoring(changes = {}) {
+    for (const name of Object.keys(keyColoring)) {
+        if (changes[name] !== undefined) keyColoring[name] = !!changes[name]
+        document.documentElement.classList.toggle(`key-color-${name}`, keyColoring[name])
+    }
+    try { localStorage.setItem('midibox-key-coloring', JSON.stringify(keyColoring)) } catch {}
+    window.dispatchEvent(new Event('midibox:key'))
+}
+
+function isInKey(note) {
+    return musicalKey.tonic == null || musicalKey.pitchClasses.has(note % 12)
+}
+
+// Mark key elements 'in-key' / 'out-key' (neither when no key is set).
+function markKeyElements(els) {
+    const on = musicalKey.tonic != null
+    for (const el of els) {
+        const inKey = isInKey(Number(el.dataset.note))
+        el.classList.toggle('in-key', on && inKey)
+        el.classList.toggle('out-key', on && !inKey)
+    }
+}
+
+function setMusicalKey({ tonic, mode, auto } = {}) {
+    if (tonic !== undefined) musicalKey.tonic = tonic
+    if (mode !== undefined && KEY_MODES[mode]) musicalKey.mode = mode
+    if (auto !== undefined) musicalKey.auto = !!auto
+    musicalKey.pitchClasses = musicalKey.tonic == null ? new Set()
+        : new Set(KEY_MODES[musicalKey.mode].steps.map(s => (s + musicalKey.tonic) % 12))
+    try {
+        localStorage.setItem('midibox-key', JSON.stringify({ tonic: musicalKey.tonic, mode: musicalKey.mode, auto: musicalKey.auto }))
+    } catch {}
+    markKeyElements(document.querySelectorAll('.white-key, .black-key'))
+    window.dispatchEvent(new Event('midibox:key'))
+}
+
+// Colour for a note bar: hsla string at the given lightness (%) and alpha.
+function noteColor(note, lightness, alpha = 1) {
+    return isInKey(note)
+        ? `hsla(140, 70%, ${lightness}%, ${alpha})`
+        : `hsla(0, 80%, ${lightness}%, ${alpha})`
+}
+
+try {
+    const saved = JSON.parse(localStorage.getItem('midibox-key') || 'null')
+    setMusicalKey(saved && typeof saved === 'object' ? saved : {})
+} catch {
+    setMusicalKey()
+}
+try {
+    const saved = JSON.parse(localStorage.getItem('midibox-key-coloring') || 'null')
+    setKeyColoring(saved && typeof saved === 'object' ? saved : {})
+} catch {
+    setKeyColoring()
 }
 
 // Pair note-on/off events into drawable bars. Notes still held at endTime run to
@@ -171,7 +255,7 @@ function drawNoteBarsVertical(ctx, bars, width, timeToY) {
             const yA = timeToY(bar.start)
             const yB = timeToY(bar.end)
             const brightness = 50 + (bar.velocity / 127) * 50
-            const color = (a) => isBlack ? `hsla(340, 80%, ${brightness}%, ${a})` : `hsla(160, 70%, ${brightness}%, ${a})`
+            const color = (a) => noteColor(bar.note, brightness, a)
             ctx.fillStyle = color(1)
             ctx.fillRect(spot.x, Math.min(yA, yB), spot.w - 1, Math.max(2, Math.abs(yB - yA)))
             if (bar.held > bar.end) {

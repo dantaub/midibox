@@ -254,6 +254,136 @@ describe.skipIf(!!reason)("layout", () => {
     expect(errors).toEqual([]);
     await page.close();
   }, 30_000);
+
+  test("the detected key shows beside the update rate in fullscreen, at every width", async () => {
+    for (const width of [414, 768, 1280]) {
+      const { page, errors } = await open({ width, height: 800 });
+      await page.click("#timelineFullscreen");
+      await page.waitForTimeout(400);
+      // A guess on the face, at its widest (C#m)
+      await page.evaluate(() => {
+        const t0 = Date.now() - 6000;
+        [1, 4, 8, 1, 3, 4, 6, 8, 9, 0, 1, 8].forEach((pc, i) => {
+          // @ts-expect-error - key-detect.js global
+          keyDetectEvent({ type: "noteon", note: 60 + pc, velocity: 80 }, t0 + i * 300);
+          // @ts-expect-error - key-detect.js global
+          keyDetectEvent({ type: "noteoff", note: 60 + pc, velocity: 0 }, t0 + i * 300 + 250);
+        });
+      });
+      const placed = await page.evaluate(() => {
+        const readout = document.getElementById("keyReadout")!.getBoundingClientRect();
+        const rate = document.getElementById("timelineRate")!.getBoundingClientRect();
+        return {
+          onScreen: readout.width > 0 && readout.left >= 0 && readout.right <= innerWidth && readout.bottom <= innerHeight,
+          // Right after the rate on its row, or (narrow rows) just under it
+          besideRate:
+            (Math.abs(readout.top + readout.height / 2 - (rate.top + rate.height / 2)) < 4 && readout.left >= rate.right) ||
+            (readout.top >= rate.bottom && readout.top - rate.bottom < 8 && readout.left < rate.right && readout.right > rate.left),
+          hScroll: document.documentElement.scrollWidth > innerWidth,
+          // Nothing in the controls row runs off the card
+          contained: [...document.querySelectorAll(".timeline-controls > *")].every((el) => {
+            const r = el.getBoundingClientRect(), c = document.querySelector(".timeline-controls")!.getBoundingClientRect();
+            return !r.width || (r.left >= c.left - 1 && r.right <= c.right + 1);
+          }),
+        };
+      });
+      expect(placed).toEqual({ onScreen: true, besideRate: true, hScroll: false, contained: true });
+      expect(errors).toEqual([]);
+      await page.close();
+    }
+  }, 60_000);
+});
+
+describe.skipIf(!!reason)("key detection", () => {
+  // n notes of a scale, one every 300 ms ending at `now`
+  const playScale = (page: any, pcs: number[], base = 60) =>
+    page.evaluate(({ pcs, base }: { pcs: number[]; base: number }) => {
+      const t0 = Date.now() - pcs.length * 2 * 300;
+      pcs.concat(pcs).forEach((pc, i) => {
+        const note = base + pc;
+        // @ts-expect-error - key-detect.js global
+        keyDetectEvent({ type: "noteon", note, velocity: 80 }, t0 + i * 300);
+        // @ts-expect-error - key-detect.js global
+        keyDetectEvent({ type: "noteoff", note, velocity: 0 }, t0 + i * 300 + 250);
+      });
+    }, { pcs, base });
+
+  // What the closed menu shows, and the values it offers
+  const readout = (page: any) =>
+    page.evaluate(() => {
+      const menu = document.getElementById("keyReadout") as HTMLSelectElement;
+      return {
+        face: menu.options[menu.selectedIndex].text,
+        values: [...menu.options].filter((o) => o.value && !o.disabled).map((o) => o.value),
+        active: menu.classList.contains("active"),
+      };
+    });
+
+  test("the readout menu offers the likeliest keys, Reset and Stop", async () => {
+    const { page, errors } = await open();
+    expect(await readout(page)).toEqual({ face: "\u266A \u2013", values: ["reset"], active: false });
+
+    // G major, tonic-heavy: G A B C D E F# G B D
+    await playScale(page, [7, 9, 11, 0, 2, 4, 6, 7, 11, 2]);
+    let r = await readout(page);
+    expect(r.face).toBe("\u266A G");
+    expect(r.values.length).toBe(4); // three keys + Reset
+    expect(r.values[0]).toBe("7:major");
+    expect(await page.inputValue("#keyTonic")).toBe("0"); // the key doesn't follow yet
+
+    // Picking the runner-up sets that key (by hand, so Auto stays off)
+    const [tonic, mode] = r.values[1].split(":");
+    await page.selectOption("#keyReadout", r.values[1]);
+    expect(await page.inputValue("#keyTonic")).toBe(tonic);
+    expect(await page.inputValue("#keyMode")).toBe(mode);
+    expect(await page.isChecked("#keyAuto")).toBe(false);
+    expect((await readout(page)).face).toBe("\u266A G"); // still shows the guess
+
+    // Reset forgets the notes so far, and the key they gave, and turns Auto on
+    await page.selectOption("#keyReadout", "reset");
+    expect(await page.isChecked("#keyAuto")).toBe(true);
+    expect(await page.inputValue("#keyTonic")).toBe("");
+    // @ts-expect-error - key-detect.js global
+    expect(await page.evaluate(() => keyDetect.notes.length)).toBe(0);
+    expect(await readout(page)).toEqual({ face: "\u266A \u2013", values: ["reset", "stop"], active: true });
+
+    // ...so only what's played next counts, and the key follows it.
+    // A minor, harmonic-minor flavoured: A C E G# A B D E A C
+    await playScale(page, [9, 0, 4, 8, 9, 11, 2, 4, 9, 0]);
+    expect((await readout(page)).face).toBe("\u266A Am");
+    expect(await page.inputValue("#keyTonic")).toBe("9");
+    expect(await page.inputValue("#keyMode")).toBe("minor");
+
+    // Stop: Auto off, the key stays
+    await page.selectOption("#keyReadout", "stop");
+    expect(await page.isChecked("#keyAuto")).toBe(false);
+    r = await readout(page);
+    expect(r.active).toBe(false);
+    expect(r.values).not.toContain("stop");
+    expect(await page.inputValue("#keyTonic")).toBe("9");
+
+    // Auto from the header too; picking a key there by hand stops it
+    await page.check("#keyAuto");
+    expect((await readout(page)).active).toBe(true);
+    await page.selectOption("#keyTonic", "2");
+    expect(await page.isChecked("#keyAuto")).toBe(false);
+    expect(errors).toEqual([]);
+    await page.close();
+  }, 30_000);
+
+  test("forgets notes older than its window", async () => {
+    const { page, errors } = await open();
+    await playScale(page, [7, 9, 11, 0, 2, 4, 6, 7, 11, 2]);
+    expect((await readout(page)).face).toBe("♪ G");
+    // One more note 40 s on: everything before has aged out
+    await page.evaluate(() => {
+      // @ts-expect-error - key-detect.js global
+      keyDetectEvent({ type: "noteon", note: 60, velocity: 80 }, Date.now() + 40_000);
+    });
+    expect((await readout(page)).face).toBe("♪ –");
+    expect(errors).toEqual([]);
+    await page.close();
+  }, 30_000);
 });
 
 describe.skipIf(!!reason)("history view", () => {
@@ -475,6 +605,96 @@ describe.skipIf(!!reason)("import/export view", () => {
     await page.click("#ioPreviewClose");
     await page.waitForTimeout(150);
     expect(await page.isVisible("#ioPreview")).toBe(false);
+    expect(errors).toEqual([]);
+    await page.close();
+  }, 30_000);
+
+  test("notes in the chosen key draw green, outside it red, and the key survives a reload", async () => {
+    const { page, errors } = await open();
+    await page.click('#tabs .tab[data-view="io"]');
+    await page.waitForTimeout(200);
+    await page.evaluate(() => {
+      const t = Date.now();
+      const events = [
+        { type: "noteon", note: 60, velocity: 0x40, timestamp: t },
+        { type: "noteon", note: 61, velocity: 0x40, timestamp: t },
+        { type: "noteoff", note: 60, velocity: 0, timestamp: t + 500 },
+        { type: "noteoff", note: 61, velocity: 0, timestamp: t + 500 },
+      ];
+      (window as any).openIOPianoRoll(events, { start: t - 50, end: t + 600, title: "Key" });
+    });
+    await page.waitForTimeout(400);
+    // "green" / "red" at the middle of each note's bar
+    const colours = () =>
+      page.evaluate(() => {
+        const c = document.querySelector("#ioPreviewBody canvas") as HTMLCanvasElement;
+        const ctx = c.getContext("2d")!;
+        const dpr = window.devicePixelRatio || 1;
+        const width = c.getBoundingClientRect().width;
+        const at = (note: number) => {
+          // @ts-expect-error - piano-roll.js global
+          const spot = noteToX(note, width);
+          const [r, g] = ctx.getImageData((spot.x + spot.w / 2) * dpr, (c.height / 2), 1, 1).data;
+          return g > r ? "green" : "red";
+        };
+        return { c: at(60), cSharp: at(61) };
+      });
+
+    expect(await page.inputValue("#keyTonic")).toBe("0");
+    expect(await colours()).toEqual({ c: "green", cSharp: "red" });
+
+    await page.selectOption("#keyTonic", "2"); // D major: C# in, C out
+    await page.waitForTimeout(100);
+    expect(await colours()).toEqual({ c: "red", cSharp: "green" });
+
+    await page.reload({ waitUntil: "networkidle" });
+    expect(await page.inputValue("#keyTonic")).toBe("2");
+    expect(await page.inputValue("#keyMode")).toBe("major");
+    expect(await page.isChecked("#keyAuto")).toBe(false);
+    expect(errors).toEqual([]);
+    await page.close();
+  }, 30_000);
+
+  test("played keys light in the key's colours, all green with no key", async () => {
+    const { page, errors } = await open();
+    const lit = () =>
+      page.evaluate(() => {
+        const colour = (note: number) => {
+          const bg = getComputedStyle(document.querySelector(`#piano [data-note="${note}"]`)!).backgroundImage;
+          return bg.includes("rgb(76, 175, 80)") ? "green" : bg.includes("rgb(233, 69, 96)") ? "red" : bg;
+        };
+        return { c: colour(60), cSharp: colour(61), d: colour(62) };
+      });
+    await page.evaluate(() => {
+      // @ts-expect-error - app.js globals
+      activateNote(60); activateNote(61); activateNote(62, true);
+    });
+    // C major: C and D in, C# out - struck or played back alike
+    expect(await lit()).toEqual({ c: "green", cSharp: "red", d: "green" });
+
+    await page.selectOption("#keyTonic", "");
+    expect(await lit()).toEqual({ c: "green", cSharp: "green", d: "green" });
+    expect(errors).toEqual([]);
+    await page.close();
+  }, 30_000);
+
+  test("keys at rest carry a faint tint of the key, unless it's off", async () => {
+    const { page, errors } = await open();
+    const tint = (note: number) =>
+      page.evaluate((n) => {
+        const bg = getComputedStyle(document.querySelector(`#piano [data-note="${n}"]`)!).backgroundImage;
+        return bg.includes("rgba(76, 175, 80, 0.") ? "green" : bg.includes("rgba(233, 69, 96, 0.") ? "red" : "none";
+      }, note);
+    expect([await tint(60), await tint(61)]).toEqual(["green", "red"]);
+
+    // @ts-expect-error - piano-roll.js global
+    await page.evaluate(() => setKeyColoring({ tint: false }));
+    expect([await tint(60), await tint(61)]).toEqual(["none", "none"]);
+
+    // @ts-expect-error - piano-roll.js global
+    await page.evaluate(() => setKeyColoring({ tint: true }));
+    await page.selectOption("#keyTonic", "");  // no key, no tint
+    expect([await tint(60), await tint(61)]).toEqual(["none", "none"]);
     expect(errors).toEqual([]);
     await page.close();
   }, 30_000);

@@ -29,7 +29,8 @@ MIDI keyboard / network
 | `src/midi-file.ts` | Standard MIDI file parser (format 0 and 1) |
 | `src/tui.ts` | Terminal client; talks to the same WebSocket |
 | `public/index.html` | The whole UI's markup |
-| `public/piano-roll.js` | Shared piano-roll: pitch/time geometry, note-on/off pairing, chord-align, bar rendering, and a `createPianoRoll` factory |
+| `public/piano-roll.js` | Shared piano-roll: pitch/time geometry, note-on/off pairing, chord-align, bar rendering, the musical key and its colours, and a `createPianoRoll` factory |
+| `public/key-detect.js` | Key detection (Krumhansl-Schmuckler) over the last 30 s of live and played-back notes; drives the key when Auto is on |
 | `public/app.js` | Keyboard, timeline, sessions, playback, output |
 | `public/history.js` | Tabs and the History view |
 | `public/io.js`, `public/popup.js` | Import/Export tab; the piano-roll popup modal |

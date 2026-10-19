@@ -406,8 +406,7 @@ function drawHistoryPreview() {
         const x2 = ((bar.end - viewStart) / span) * width
         const y = height - ((bar.note - 21 + 1) / 88) * height
         const brightness = 50 + (bar.velocity / 127) * 50
-        const isBlack = [1, 3, 6, 8, 10].includes(bar.note % 12)
-        historyCtx.fillStyle = isBlack ? `hsl(340, 80%, ${brightness}%)` : `hsl(160, 70%, ${brightness}%)`
+        historyCtx.fillStyle = noteColor(bar.note, brightness)
         historyCtx.fillRect(x1, y, Math.max(2, x2 - x1), Math.max(1, noteHeight - 1))
     }
 
@@ -899,6 +898,8 @@ onLiveEvent((event) => {
     if (hist.days.length === 0) return  // history never opened yet
     onLiveHistoryEvent(event)
 })
+
+window.addEventListener('midibox:key', drawHistoryPreview)
 
 // ===========================================
 // Initialize

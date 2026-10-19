@@ -332,6 +332,8 @@ function seekIOPreview(t) {
     else ioPlay(ioPreviewKey, { from: Math.round(t) })
 }
 
+window.addEventListener('midibox:key', () => { if (ioPreviewInstance) ioPreviewInstance.render() })
+
 // Also used directly by the UI tests with a raw event list.
 function openIOPianoRoll(events, { title, start, end, key, scroll = true } = {}) {
     ioPreviewKey = key || null
