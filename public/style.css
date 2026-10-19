@@ -69,27 +69,25 @@ header {
 	white-space: nowrap;
 }
 
-/* The live update rate and the detected key wrap as one */
+/* The live update rate and the detected key wrap as one: side by side,
+   or the key just under the rate where the row is too narrow (phones) */
 .rate-group {
 	display: flex;
 	align-items: center;
+	justify-content: center;
+	flex-wrap: wrap;
 	gap: 0.25rem;
 }
 
 /* Detected key, beside the live update rate */
-.key-readout {
-	padding: 0.3rem 0.5rem;
-	font-size: 0.7rem;
-	border: none;
-	border-radius: 3px;
-	background: #1a1a2e;
-	color: #888;
-	cursor: pointer;
-	white-space: nowrap;
+/* Detected key menu, beside the live update rate (styled as that select);
+   lit like the other toggles while the key follows it (Auto). Fixed width:
+   a select is otherwise as wide as its longest option. */
+.timeline-controls .key-readout {
+	width: 4.5rem;
 }
 
-/* Following it (Auto): lit like the other toggles */
-.key-readout.active {
+.timeline-controls .key-readout.active {
 	background: #2a3a5a;
 	color: #9ec5fe;
 }
@@ -1668,8 +1666,7 @@ main,
 @media (pointer: coarse) {
 	.timeline-controls button,
 	.btn-live-toggle,
-	.btn-smooth,
-	.key-readout {
+	.btn-smooth {
 		min-height: 36px;
 		min-width: 36px;
 	}

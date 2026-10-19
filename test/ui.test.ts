@@ -260,16 +260,34 @@ describe.skipIf(!!reason)("layout", () => {
       const { page, errors } = await open({ width, height: 800 });
       await page.click("#timelineFullscreen");
       await page.waitForTimeout(400);
+      // A guess on the face, at its widest (C#m)
+      await page.evaluate(() => {
+        const t0 = Date.now() - 6000;
+        [1, 4, 8, 1, 3, 4, 6, 8, 9, 0, 1, 8].forEach((pc, i) => {
+          // @ts-expect-error - key-detect.js global
+          keyDetectEvent({ type: "noteon", note: 60 + pc, velocity: 80 }, t0 + i * 300);
+          // @ts-expect-error - key-detect.js global
+          keyDetectEvent({ type: "noteoff", note: 60 + pc, velocity: 0 }, t0 + i * 300 + 250);
+        });
+      });
       const placed = await page.evaluate(() => {
         const readout = document.getElementById("keyReadout")!.getBoundingClientRect();
         const rate = document.getElementById("timelineRate")!.getBoundingClientRect();
         return {
           onScreen: readout.width > 0 && readout.left >= 0 && readout.right <= innerWidth && readout.bottom <= innerHeight,
-          // Same row, right after the rate
-          besideRate: Math.abs(readout.top + readout.height / 2 - (rate.top + rate.height / 2)) < 4 && readout.left >= rate.right,
+          // Right after the rate on its row, or (narrow rows) just under it
+          besideRate:
+            (Math.abs(readout.top + readout.height / 2 - (rate.top + rate.height / 2)) < 4 && readout.left >= rate.right) ||
+            (readout.top >= rate.bottom && readout.top - rate.bottom < 8 && readout.left < rate.right && readout.right > rate.left),
+          hScroll: document.documentElement.scrollWidth > innerWidth,
+          // Nothing in the controls row runs off the card
+          contained: [...document.querySelectorAll(".timeline-controls > *")].every((el) => {
+            const r = el.getBoundingClientRect(), c = document.querySelector(".timeline-controls")!.getBoundingClientRect();
+            return !r.width || (r.left >= c.left - 1 && r.right <= c.right + 1);
+          }),
         };
       });
-      expect(placed).toEqual({ onScreen: true, besideRate: true });
+      expect(placed).toEqual({ onScreen: true, besideRate: true, hScroll: false, contained: true });
       expect(errors).toEqual([]);
       await page.close();
     }
@@ -290,32 +308,62 @@ describe.skipIf(!!reason)("key detection", () => {
       });
     }, { pcs, base });
 
-  test("names the key from the notes played, and Auto follows it until a key is picked by hand", async () => {
+  // What the closed menu shows, and the values it offers
+  const readout = (page: any) =>
+    page.evaluate(() => {
+      const menu = document.getElementById("keyReadout") as HTMLSelectElement;
+      return {
+        face: menu.options[menu.selectedIndex].text,
+        values: [...menu.options].filter((o) => o.value && !o.disabled).map((o) => o.value),
+        active: menu.classList.contains("active"),
+      };
+    });
+
+  test("the readout menu offers the likeliest keys, Reset and Stop", async () => {
     const { page, errors } = await open();
-    expect(await page.textContent("#keyReadout")).toBe("♪ –");
+    expect(await readout(page)).toEqual({ face: "\u266A \u2013", values: ["reset"], active: false });
 
     // G major, tonic-heavy: G A B C D E F# G B D
     await playScale(page, [7, 9, 11, 0, 2, 4, 6, 7, 11, 2]);
-    expect(await page.textContent("#keyReadout")).toBe("♪ G major");
-    expect(await page.inputValue("#keyTonic")).toBe("0"); // not following yet
+    let r = await readout(page);
+    expect(r.face).toBe("\u266A G");
+    expect(r.values.length).toBe(4); // three keys + Reset
+    expect(r.values[0]).toBe("7:major");
+    expect(await page.inputValue("#keyTonic")).toBe("0"); // the key doesn't follow yet
 
-    await page.click("#keyReadout");
+    // Picking the runner-up sets that key (by hand, so Auto stays off)
+    const [tonic, mode] = r.values[1].split(":");
+    await page.selectOption("#keyReadout", r.values[1]);
+    expect(await page.inputValue("#keyTonic")).toBe(tonic);
+    expect(await page.inputValue("#keyMode")).toBe(mode);
+    expect(await page.isChecked("#keyAuto")).toBe(false);
+    expect((await readout(page)).face).toBe("\u266A G"); // still shows the guess
+
+    // Reset forgets the notes so far and turns Auto on
+    await page.selectOption("#keyReadout", "reset");
     expect(await page.isChecked("#keyAuto")).toBe(true);
-    expect(await page.inputValue("#keyTonic")).toBe("7");
-    expect(await page.inputValue("#keyMode")).toBe("major");
+    expect(await readout(page)).toEqual({ face: "\u266A \u2013", values: ["reset", "stop"], active: true });
 
+    // ...so only what's played next counts, and the key follows it.
     // A minor, harmonic-minor flavoured: A C E G# A B D E A C
-    // @ts-expect-error - key-detect.js global
-    await page.evaluate(() => { keyDetect.notes = []; });
     await playScale(page, [9, 0, 4, 8, 9, 11, 2, 4, 9, 0]);
-    expect(await page.textContent("#keyReadout")).toBe("♪ A minor");
+    expect((await readout(page)).face).toBe("\u266A Am");
     expect(await page.inputValue("#keyTonic")).toBe("9");
     expect(await page.inputValue("#keyMode")).toBe("minor");
 
-    // Picking a key by hand stops Auto
+    // Stop: Auto off, the key stays
+    await page.selectOption("#keyReadout", "stop");
+    expect(await page.isChecked("#keyAuto")).toBe(false);
+    r = await readout(page);
+    expect(r.active).toBe(false);
+    expect(r.values).not.toContain("stop");
+    expect(await page.inputValue("#keyTonic")).toBe("9");
+
+    // Auto from the header too; picking a key there by hand stops it
+    await page.check("#keyAuto");
+    expect((await readout(page)).active).toBe(true);
     await page.selectOption("#keyTonic", "2");
     expect(await page.isChecked("#keyAuto")).toBe(false);
-    expect(await page.evaluate(() => document.getElementById("keyReadout")!.classList.contains("active"))).toBe(false);
     expect(errors).toEqual([]);
     await page.close();
   }, 30_000);
@@ -323,13 +371,13 @@ describe.skipIf(!!reason)("key detection", () => {
   test("forgets notes older than its window", async () => {
     const { page, errors } = await open();
     await playScale(page, [7, 9, 11, 0, 2, 4, 6, 7, 11, 2]);
-    expect(await page.textContent("#keyReadout")).toBe("♪ G major");
+    expect((await readout(page)).face).toBe("♪ G");
     // One more note 40 s on: everything before has aged out
     await page.evaluate(() => {
       // @ts-expect-error - key-detect.js global
       keyDetectEvent({ type: "noteon", note: 60, velocity: 80 }, Date.now() + 40_000);
     });
-    expect(await page.textContent("#keyReadout")).toBe("♪ –");
+    expect((await readout(page)).face).toBe("♪ –");
     expect(errors).toEqual([]);
     await page.close();
   }, 30_000);

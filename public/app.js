@@ -2426,24 +2426,38 @@ keyTonic.innerHTML = '<option value="">Off</option>' +
 keyMode.innerHTML = Object.entries(KEY_MODES).map(([id, m]) => `<option value="${id}">${m.name}</option>`).join('')
 
 // The detected key (key-detect.js) shows beside the live update rate, where
-// it stays in view in fullscreen (no header there); clicking it toggles Auto.
+// it stays in view in fullscreen (no header there). It's a menu: its face
+// shows the guess; picking one of the likeliest keys sets the key, Reset
+// forgets the notes so far and follows what's played next (Auto on), Stop
+// stops following.
 const keyReadout = $('keyReadout')
+const KEY_READOUT_CHOICES = 3
 
 function renderKeyControls() {
     keyTonic.value = musicalKey.tonic == null ? '' : String(musicalKey.tonic)
     keyMode.value = musicalKey.mode
     keyMode.disabled = musicalKey.tonic == null
     keyAuto.checked = musicalKey.auto
-    keyReadout.classList.toggle('active', musicalKey.auto)
-    keyReadout.setAttribute('aria-pressed', String(musicalKey.auto))
 }
 
 function renderKeyReadout() {
     const best = typeof keyDetect === 'undefined' ? null : keyDetect.best
-    keyReadout.textContent = `♪ ${best ? keyLabel(best) : '–'}`
-    const runnersUp = best ? keyDetect.candidates.slice(0, 3).map(k => `${keyLabel(k)} ${k.score.toFixed(2)}`).join(', ') : ''
-    keyReadout.title = (best ? `Detected key (likeliest: ${runnersUp})` : 'Detected key: play a few more notes')
-        + (musicalKey.auto ? ' - following it; click to stop' : ' - click to follow it')
+    const choices = best ? keyDetect.candidates.slice(0, KEY_READOUT_CHOICES) : []
+    const html = `<option value="" hidden>\u266A ${best ? keySymbol(best) : '\u2013'}</option>`
+        + (choices.length
+            ? choices.map(k => `<option value="${k.tonic}:${k.mode}">${keyLabel(k)}</option>`).join('')
+            : '<option disabled>Play a few more notes</option>')
+        + '<option value="reset">Reset</option>'
+        + (musicalKey.auto ? '<option value="stop">Stop</option>' : '')
+    // Rebuilt only on a change, so an open menu isn't redrawn under the finger
+    if (html !== keyReadout.dataset.html) {
+        keyReadout.innerHTML = html
+        keyReadout.dataset.html = html
+    }
+    keyReadout.value = ''
+    keyReadout.classList.toggle('active', musicalKey.auto)
+    keyReadout.title = (best ? `Detected key (likeliest: ${choices.map(k => `${keyLabel(k)} ${k.score.toFixed(2)}`).join(', ')})` : 'Detected key: play a few more notes')
+        + (musicalKey.auto ? ' - the key follows it' : '')
 }
 
 function setKeyAuto(on) {
@@ -2457,7 +2471,19 @@ keyTonic.addEventListener('change', () => {
 })
 keyMode.addEventListener('change', () => setMusicalKey({ mode: keyMode.value, auto: false }))
 keyAuto.addEventListener('change', () => setKeyAuto(keyAuto.checked))
-keyReadout.addEventListener('click', () => setKeyAuto(!musicalKey.auto))
+keyReadout.addEventListener('change', () => {
+    const choice = keyReadout.value
+    if (choice === 'reset') {
+        resetKeyDetection()
+        setKeyAuto(true)
+    } else if (choice === 'stop') {
+        setKeyAuto(false)
+    } else if (choice) {
+        const [tonic, mode] = choice.split(':')
+        setMusicalKey({ tonic: Number(tonic), mode, auto: false })
+    }
+    renderKeyReadout()
+})
 
 window.addEventListener('midibox:key', () => {
     renderKeyControls()

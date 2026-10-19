@@ -29,6 +29,11 @@ function keyLabel(k) {
     return `${KEY_SHORT_NAMES[k.tonic]} ${k.mode}`
 }
 
+// Chord-symbol style, for tight spots: G, Am
+function keySymbol(k) {
+    return KEY_SHORT_NAMES[k.tonic] + (k.mode === 'minor' ? 'm' : '')
+}
+
 function pearson(a, b) {
     const n = a.length
     const ma = a.reduce((s, x) => s + x, 0) / n
@@ -81,6 +86,15 @@ function updateKeyDetection(now) {
     }
 
     applyDetectedKey()
+    window.dispatchEvent(new Event('midibox:keydetect'))
+}
+
+// Forget every note so far, held ones included: the guess starts over from
+// what's played next.
+function resetKeyDetection() {
+    keyDetect.notes = []
+    keyDetect.candidates = []
+    keyDetect.best = null
     window.dispatchEvent(new Event('midibox:keydetect'))
 }
 
