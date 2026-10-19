@@ -38,7 +38,8 @@ Two things need attention on an existing install:
   timeline, History preview and piano roll green when in the key, red when
   not. Defaults to C major; "Off" restores the white/black-key colours.
   Remembered per browser. An Auto checkbox is reserved (disabled) for
-  detecting likely keys from the notes played.
+  detecting likely keys from the notes played. Keys lit by playing, playback
+  or the pedal take the same green/red.
 - **Select and scrub in the History preview.** Drag across the preview to
   select a region (edges adjustable; ✕ Clear Selection or a tap clears it);
   Play and Save use it. What's playing from the stretch shows as a playhead

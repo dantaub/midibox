@@ -524,6 +524,31 @@ describe.skipIf(!!reason)("import/export view", () => {
     expect(errors).toEqual([]);
     await page.close();
   }, 30_000);
+
+  test("played keys light in the key's colours, and fall back when that's switched off", async () => {
+    const { page, errors } = await open();
+    const lit = () =>
+      page.evaluate(() => {
+        const colour = (note: number) => {
+          const bg = getComputedStyle(document.querySelector(`#piano [data-note="${note}"]`)!).backgroundImage;
+          return bg.includes("rgb(76, 175, 80)") ? "green" : bg.includes("rgb(233, 69, 96)") ? "red" : bg;
+        };
+        return { c: colour(60), cSharp: colour(61), d: colour(62) };
+      });
+    await page.evaluate(() => {
+      // @ts-expect-error - app.js globals
+      activateNote(60); activateNote(61); activateNote(62, true);
+    });
+    // C major: C and D in, C# out - struck or played back alike
+    expect(await lit()).toEqual({ c: "green", cSharp: "red", d: "green" });
+
+    // @ts-expect-error - piano-roll.js global
+    await page.evaluate(() => setKeyColoring({ played: false }));
+    // The old scheme: struck red, played back green
+    expect(await lit()).toEqual({ c: "red", cSharp: "red", d: "green" });
+    expect(errors).toEqual([]);
+    await page.close();
+  }, 30_000);
 });
 
 describe.skipIf(!!reason)("shared player", () => {

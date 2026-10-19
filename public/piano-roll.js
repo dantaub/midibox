@@ -57,6 +57,7 @@ function buildPianoKeys(pianoEl) {
         keys[note] = key
         pianoEl.appendChild(key)
     }
+    markKeyElements(Object.values(keys))
     return keys
 }
 
@@ -80,6 +81,33 @@ const KEY_MODES = {
 
 const musicalKey = { tonic: 0, mode: 'major', auto: false, pitchClasses: new Set() }
 
+// Which parts of the UI follow the key, each switchable on its own (for a
+// settings panel: call setKeyColoring({ played: false }) and everything
+// follows). Canvas views read these when drawing; CSS follows the matching
+// 'key-color-<name>' class on <html>.
+//   bars    note bars on the timeline / previews
+//   played  keys lit by playing, playback or the pedal
+const keyColoring = { bars: true, played: true }
+
+function setKeyColoring(changes = {}) {
+    for (const name of Object.keys(keyColoring)) {
+        if (changes[name] !== undefined) keyColoring[name] = !!changes[name]
+        document.documentElement.classList.toggle(`key-color-${name}`, keyColoring[name])
+    }
+    try { localStorage.setItem('midibox-key-coloring', JSON.stringify(keyColoring)) } catch {}
+    window.dispatchEvent(new Event('midibox:key'))
+}
+
+// Mark key elements 'in-key' / 'out-key' (neither when no key is set).
+function markKeyElements(els) {
+    const on = musicalKey.tonic != null
+    for (const el of els) {
+        const inKey = musicalKey.pitchClasses.has(Number(el.dataset.note) % 12)
+        el.classList.toggle('in-key', on && inKey)
+        el.classList.toggle('out-key', on && !inKey)
+    }
+}
+
 function setMusicalKey({ tonic, mode, auto } = {}) {
     if (tonic !== undefined) musicalKey.tonic = tonic
     if (mode !== undefined && KEY_MODES[mode]) musicalKey.mode = mode
@@ -89,12 +117,13 @@ function setMusicalKey({ tonic, mode, auto } = {}) {
     try {
         localStorage.setItem('midibox-key', JSON.stringify({ tonic: musicalKey.tonic, mode: musicalKey.mode, auto: musicalKey.auto }))
     } catch {}
+    markKeyElements(document.querySelectorAll('.white-key, .black-key'))
     window.dispatchEvent(new Event('midibox:key'))
 }
 
 // Colour for a note bar: hsla string at the given lightness (%) and alpha.
 function noteColor(note, lightness, alpha = 1) {
-    if (musicalKey.tonic == null) {
+    if (musicalKey.tonic == null || !keyColoring.bars) {
         const isBlack = [1, 3, 6, 8, 10].includes(note % 12)
         return isBlack ? `hsla(340, 80%, ${lightness}%, ${alpha})` : `hsla(160, 70%, ${lightness}%, ${alpha})`
     }
@@ -108,6 +137,12 @@ try {
     setMusicalKey(saved && typeof saved === 'object' ? saved : {})
 } catch {
     setMusicalKey()
+}
+try {
+    const saved = JSON.parse(localStorage.getItem('midibox-key-coloring') || 'null')
+    setKeyColoring(saved && typeof saved === 'object' ? saved : {})
+} catch {
+    setKeyColoring()
 }
 
 // Pair note-on/off events into drawable bars. Notes still held at endTime run to

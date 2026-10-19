@@ -620,12 +620,36 @@ select {
 
 @keyframes sustain-fade {
 	from {
-		box-shadow: inset 0 0 0 200px rgba(76, 175, 80, 0.75);
+		box-shadow: inset 0 0 0 200px rgba(var(--sustain-rgb, 76, 175, 80), 0.75);
 	}
 
 	to {
-		box-shadow: inset 0 0 0 200px rgba(76, 175, 80, calc(0.75 * var(--sustain-fade-floor, 0.15)));
+		box-shadow: inset 0 0 0 200px rgba(var(--sustain-rgb, 76, 175, 80), calc(0.75 * var(--sustain-fade-floor, 0.15)));
 	}
+}
+
+/* Played keys follow the musical key (keyColoring.played in piano-roll.js):
+   green in the key, red outside it, whether struck, played back or held by
+   the pedal. With no key set, keys carry neither class and keep the colours
+   above. */
+.key-color-played .white-key.in-key:is(.active, .playback) {
+	background: linear-gradient(to bottom, #4caf50 0%, #388e3c 100%);
+}
+
+.key-color-played .black-key.in-key:is(.active, .playback) {
+	background: linear-gradient(to bottom, #4caf50 0%, #2e7d32 100%);
+}
+
+.key-color-played .white-key.out-key:is(.active, .playback) {
+	background: linear-gradient(to bottom, #e94560 0%, #c73e54 100%);
+}
+
+.key-color-played .black-key.out-key:is(.active, .playback) {
+	background: linear-gradient(to bottom, #e94560 0%, #a83248 100%);
+}
+
+.key-color-played .out-key {
+	--sustain-rgb: 233, 69, 96;
 }
 
 /* Timeline / Piano Roll */
