@@ -2425,23 +2425,46 @@ keyTonic.innerHTML = '<option value="">Off</option>' +
     KEY_TONICS.map((name, pc) => `<option value="${pc}">${name}</option>`).join('')
 keyMode.innerHTML = Object.entries(KEY_MODES).map(([id, m]) => `<option value="${id}">${m.name}</option>`).join('')
 
+// The detected key (key-detect.js) shows beside the live update rate, where
+// it stays in view in fullscreen (no header there); clicking it toggles Auto.
+const keyReadout = $('keyReadout')
+
 function renderKeyControls() {
     keyTonic.value = musicalKey.tonic == null ? '' : String(musicalKey.tonic)
     keyMode.value = musicalKey.mode
     keyMode.disabled = musicalKey.tonic == null
     keyAuto.checked = musicalKey.auto
+    keyReadout.classList.toggle('active', musicalKey.auto)
+    keyReadout.setAttribute('aria-pressed', String(musicalKey.auto))
 }
 
+function renderKeyReadout() {
+    const best = typeof keyDetect === 'undefined' ? null : keyDetect.best
+    keyReadout.textContent = `♪ ${best ? keyLabel(best) : '–'}`
+    const runnersUp = best ? keyDetect.candidates.slice(0, 3).map(k => `${keyLabel(k)} ${k.score.toFixed(2)}`).join(', ') : ''
+    keyReadout.title = (best ? `Detected key (likeliest: ${runnersUp})` : 'Detected key: play a few more notes')
+        + (musicalKey.auto ? ' - following it; click to stop' : ' - click to follow it')
+}
+
+function setKeyAuto(on) {
+    setMusicalKey({ auto: on })
+    if (on) applyDetectedKey()
+}
+
+// Picking a key by hand stops following the detected one
 keyTonic.addEventListener('change', () => {
-    setMusicalKey({ tonic: keyTonic.value === '' ? null : Number(keyTonic.value) })
+    setMusicalKey({ tonic: keyTonic.value === '' ? null : Number(keyTonic.value), auto: false })
 })
-keyMode.addEventListener('change', () => setMusicalKey({ mode: keyMode.value }))
-keyAuto.addEventListener('change', () => setMusicalKey({ auto: keyAuto.checked }))
+keyMode.addEventListener('change', () => setMusicalKey({ mode: keyMode.value, auto: false }))
+keyAuto.addEventListener('change', () => setKeyAuto(keyAuto.checked))
+keyReadout.addEventListener('click', () => setKeyAuto(!musicalKey.auto))
 
 window.addEventListener('midibox:key', () => {
     renderKeyControls()
+    renderKeyReadout()
     drawTimeline()
 })
+window.addEventListener('midibox:keydetect', renderKeyReadout)
 
 // Zoom to selection or zoom in on center
 btnZoomIn.addEventListener('click', async () => {
@@ -2693,6 +2716,7 @@ loadAlignGap()
 setAlignChords(localStorage.getItem('midibox-align-chords') === '1')
 setFullscreen(localStorage.getItem('midibox-fullscreen') === '1')
 renderKeyControls()
+renderKeyReadout()
 connect()
 loadSessions()
 loadOutputs().then(loadOutputStatus)

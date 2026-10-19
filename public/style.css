@@ -69,8 +69,29 @@ header {
 	white-space: nowrap;
 }
 
-.key-auto:has(input:disabled) {
-	opacity: 0.5;
+/* The live update rate and the detected key wrap as one */
+.rate-group {
+	display: flex;
+	align-items: center;
+	gap: 0.25rem;
+}
+
+/* Detected key, beside the live update rate */
+.key-readout {
+	padding: 0.3rem 0.5rem;
+	font-size: 0.7rem;
+	border: none;
+	border-radius: 3px;
+	background: #1a1a2e;
+	color: #888;
+	cursor: pointer;
+	white-space: nowrap;
+}
+
+/* Following it (Auto): lit like the other toggles */
+.key-readout.active {
+	background: #2a3a5a;
+	color: #9ec5fe;
 }
 
 .btn-connect {
@@ -1647,7 +1668,8 @@ main,
 @media (pointer: coarse) {
 	.timeline-controls button,
 	.btn-live-toggle,
-	.btn-smooth {
+	.btn-smooth,
+	.key-readout {
 		min-height: 36px;
 		min-width: 36px;
 	}

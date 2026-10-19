@@ -40,6 +40,10 @@ Two things need attention on an existing install:
   browser. Keys lit by playing, playback or the pedal take the same
   green/red (struck keys are no longer red and played-back keys green), and
   keys at rest carry a very faint tint of it.
+- **Key detection.** The likeliest major or minor key of the last 30 s of
+  notes, live or played back, shows beside the live update rate (in
+  fullscreen too). Click it, or tick Auto in the header, to make the key
+  follow it; picking a key by hand stops that.
 - **Select and scrub in the History preview.** Drag across the preview to
   select a region (edges adjustable; ✕ Clear Selection or a tap clears it);
   Play and Save use it. What's playing from the stretch shows as a playhead

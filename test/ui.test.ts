@@ -254,6 +254,85 @@ describe.skipIf(!!reason)("layout", () => {
     expect(errors).toEqual([]);
     await page.close();
   }, 30_000);
+
+  test("the detected key shows beside the update rate in fullscreen, at every width", async () => {
+    for (const width of [414, 768, 1280]) {
+      const { page, errors } = await open({ width, height: 800 });
+      await page.click("#timelineFullscreen");
+      await page.waitForTimeout(400);
+      const placed = await page.evaluate(() => {
+        const readout = document.getElementById("keyReadout")!.getBoundingClientRect();
+        const rate = document.getElementById("timelineRate")!.getBoundingClientRect();
+        return {
+          onScreen: readout.width > 0 && readout.left >= 0 && readout.right <= innerWidth && readout.bottom <= innerHeight,
+          // Same row, right after the rate
+          besideRate: Math.abs(readout.top + readout.height / 2 - (rate.top + rate.height / 2)) < 4 && readout.left >= rate.right,
+        };
+      });
+      expect(placed).toEqual({ onScreen: true, besideRate: true });
+      expect(errors).toEqual([]);
+      await page.close();
+    }
+  }, 60_000);
+});
+
+describe.skipIf(!!reason)("key detection", () => {
+  // n notes of a scale, one every 300 ms ending at `now`
+  const playScale = (page: any, pcs: number[], base = 60) =>
+    page.evaluate(({ pcs, base }: { pcs: number[]; base: number }) => {
+      const t0 = Date.now() - pcs.length * 2 * 300;
+      pcs.concat(pcs).forEach((pc, i) => {
+        const note = base + pc;
+        // @ts-expect-error - key-detect.js global
+        keyDetectEvent({ type: "noteon", note, velocity: 80 }, t0 + i * 300);
+        // @ts-expect-error - key-detect.js global
+        keyDetectEvent({ type: "noteoff", note, velocity: 0 }, t0 + i * 300 + 250);
+      });
+    }, { pcs, base });
+
+  test("names the key from the notes played, and Auto follows it until a key is picked by hand", async () => {
+    const { page, errors } = await open();
+    expect(await page.textContent("#keyReadout")).toBe("♪ –");
+
+    // G major, tonic-heavy: G A B C D E F# G B D
+    await playScale(page, [7, 9, 11, 0, 2, 4, 6, 7, 11, 2]);
+    expect(await page.textContent("#keyReadout")).toBe("♪ G major");
+    expect(await page.inputValue("#keyTonic")).toBe("0"); // not following yet
+
+    await page.click("#keyReadout");
+    expect(await page.isChecked("#keyAuto")).toBe(true);
+    expect(await page.inputValue("#keyTonic")).toBe("7");
+    expect(await page.inputValue("#keyMode")).toBe("major");
+
+    // A minor, harmonic-minor flavoured: A C E G# A B D E A C
+    // @ts-expect-error - key-detect.js global
+    await page.evaluate(() => { keyDetect.notes = []; });
+    await playScale(page, [9, 0, 4, 8, 9, 11, 2, 4, 9, 0]);
+    expect(await page.textContent("#keyReadout")).toBe("♪ A minor");
+    expect(await page.inputValue("#keyTonic")).toBe("9");
+    expect(await page.inputValue("#keyMode")).toBe("minor");
+
+    // Picking a key by hand stops Auto
+    await page.selectOption("#keyTonic", "2");
+    expect(await page.isChecked("#keyAuto")).toBe(false);
+    expect(await page.evaluate(() => document.getElementById("keyReadout")!.classList.contains("active"))).toBe(false);
+    expect(errors).toEqual([]);
+    await page.close();
+  }, 30_000);
+
+  test("forgets notes older than its window", async () => {
+    const { page, errors } = await open();
+    await playScale(page, [7, 9, 11, 0, 2, 4, 6, 7, 11, 2]);
+    expect(await page.textContent("#keyReadout")).toBe("♪ G major");
+    // One more note 40 s on: everything before has aged out
+    await page.evaluate(() => {
+      // @ts-expect-error - key-detect.js global
+      keyDetectEvent({ type: "noteon", note: 60, velocity: 80 }, Date.now() + 40_000);
+    });
+    expect(await page.textContent("#keyReadout")).toBe("♪ –");
+    expect(errors).toEqual([]);
+    await page.close();
+  }, 30_000);
 });
 
 describe.skipIf(!!reason)("history view", () => {
@@ -520,7 +599,7 @@ describe.skipIf(!!reason)("import/export view", () => {
     await page.reload({ waitUntil: "networkidle" });
     expect(await page.inputValue("#keyTonic")).toBe("2");
     expect(await page.inputValue("#keyMode")).toBe("major");
-    expect(await page.isDisabled("#keyAuto")).toBe(true);
+    expect(await page.isChecked("#keyAuto")).toBe(false);
     expect(errors).toEqual([]);
     await page.close();
   }, 30_000);

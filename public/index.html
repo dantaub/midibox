@@ -28,8 +28,8 @@
                 <span class="header-label">Key</span>
                 <select id="keyTonic"></select>
                 <select id="keyMode"></select>
-                <label class="key-auto" title="Detect likely keys from the notes played (coming soon)">
-                    <input type="checkbox" id="keyAuto" disabled> Auto
+                <label class="key-auto" title="Follow the key detected from the notes played">
+                    <input type="checkbox" id="keyAuto"> Auto
                 </label>
             </div>
             <div class="header-control">
@@ -141,18 +141,22 @@
 
                     <!-- Live: how often the view steps forward -->
                     <div class="timeline-controls-main" id="liveRateControls">
-                        <select id="timelineRate" title="Live update rate, in note lengths at the tempo beside it">
-                            <option value="4">1/1</option>
-                            <option value="3">1/2.</option>
-                            <option value="2">1/2</option>
-                            <option value="1.5">1/4.</option>
-                            <option value="1" selected>1/4 &#x2669;</option>
-                            <option value="0.6666666666666666">1/4T</option>
-                            <option value="0.75">1/8.</option>
-                            <option value="0.5">1/8 &#x266A;</option>
-                            <option value="0.3333333333333333">1/8T</option>
-                            <option value="0.25">1/16</option>
-                        </select>
+                        <span class="rate-group">
+                            <select id="timelineRate" title="Live update rate, in note lengths at the tempo beside it">
+                                <option value="4">1/1</option>
+                                <option value="3">1/2.</option>
+                                <option value="2">1/2</option>
+                                <option value="1.5">1/4.</option>
+                                <option value="1" selected>1/4 &#x2669;</option>
+                                <option value="0.6666666666666666">1/4T</option>
+                                <option value="0.75">1/8.</option>
+                                <option value="0.5">1/8 &#x266A;</option>
+                                <option value="0.3333333333333333">1/8T</option>
+                                <option value="0.25">1/16</option>
+                            </select>
+                            <!-- Detected key (key-detect.js); click to follow it (Auto) -->
+                            <button id="keyReadout" class="key-readout" aria-pressed="false">&#x266A; &ndash;</button>
+                        </span>
                         <input type="range" id="timelineTempo" class="tempo-slider" min="40" max="220" step="1" value="120" title="Tempo (BPM)">
                         <span class="tempo-readout" id="tempoReadout">120 BPM</span>
                         <button id="timelineSmooth" class="btn-smooth" title="Redraw continuously at 60 Hz instead of on the note">60Hz</button>
@@ -332,6 +336,7 @@
     <script src="imports-db.js"></script>
     <script src="player.js"></script>
     <script src="app.js"></script>
+    <script src="key-detect.js"></script>
     <script src="history.js"></script>
     <script src="score.js"></script>
     <script src="io.js"></script>
