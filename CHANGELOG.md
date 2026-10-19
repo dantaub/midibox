@@ -43,9 +43,10 @@ Two things need attention on an existing install:
 - **Key detection.** The likeliest major or minor key of the last 30 s of
   notes, live or played back, shows beside the live update rate (in
   fullscreen too, under the rate on phones). It's a menu: pick one of the
-  three likeliest keys to set it; Reset forgets the notes so far and makes
-  the key follow what's played next (as Auto in the header does); Stop
-  stops following. Picking a key by hand stops it too.
+  three likeliest keys to set it; Reset forgets the notes so far (and the
+  key they gave: none until a new guess) and makes the key follow what's
+  played next (as Auto in the header does); Stop stops following. Picking a
+  key by hand stops it too.
 - **Select and scrub in the History preview.** Drag across the preview to
   select a region (edges adjustable; ✕ Clear Selection or a tap clears it);
   Play and Save use it. What's playing from the stretch shows as a playhead

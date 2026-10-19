@@ -2428,8 +2428,8 @@ keyMode.innerHTML = Object.entries(KEY_MODES).map(([id, m]) => `<option value="$
 // The detected key (key-detect.js) shows beside the live update rate, where
 // it stays in view in fullscreen (no header there). It's a menu: its face
 // shows the guess; picking one of the likeliest keys sets the key, Reset
-// forgets the notes so far and follows what's played next (Auto on), Stop
-// stops following.
+// forgets the notes so far, and the key with them, and follows what's played
+// next (Auto on), Stop stops following.
 const keyReadout = $('keyReadout')
 const KEY_READOUT_CHOICES = 3
 
@@ -2474,8 +2474,10 @@ keyAuto.addEventListener('change', () => setKeyAuto(keyAuto.checked))
 keyReadout.addEventListener('change', () => {
     const choice = keyReadout.value
     if (choice === 'reset') {
+        // The key came from the old notes too: none (all green) until the
+        // notes played from here give a new guess
         resetKeyDetection()
-        setKeyAuto(true)
+        setMusicalKey({ tonic: null, auto: true })
     } else if (choice === 'stop') {
         setKeyAuto(false)
     } else if (choice) {

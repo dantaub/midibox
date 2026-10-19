@@ -339,9 +339,12 @@ describe.skipIf(!!reason)("key detection", () => {
     expect(await page.isChecked("#keyAuto")).toBe(false);
     expect((await readout(page)).face).toBe("\u266A G"); // still shows the guess
 
-    // Reset forgets the notes so far and turns Auto on
+    // Reset forgets the notes so far, and the key they gave, and turns Auto on
     await page.selectOption("#keyReadout", "reset");
     expect(await page.isChecked("#keyAuto")).toBe(true);
+    expect(await page.inputValue("#keyTonic")).toBe("");
+    // @ts-expect-error - key-detect.js global
+    expect(await page.evaluate(() => keyDetect.notes.length)).toBe(0);
     expect(await readout(page)).toEqual({ face: "\u266A \u2013", values: ["reset", "stop"], active: true });
 
     // ...so only what's played next counts, and the key follows it.
